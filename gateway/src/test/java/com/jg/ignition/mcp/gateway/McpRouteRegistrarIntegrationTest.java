@@ -109,7 +109,13 @@ class McpRouteRegistrarIntegrationTest {
         );
         ObjectNode listBody = asObjectNode(list.body());
         assertTrue(listBody.path("result").path("tools").isArray());
-        assertTrue(listBody.path("result").path("tools").size() >= 6);
+        assertTrue(listBody.path("result").path("tools").size() >= 8);
+        assertTrue(
+            listBody.path("result").path("tools").toString().contains("ignition.tags.definition.read")
+        );
+        assertTrue(
+            listBody.path("result").path("tools").toString().contains("ignition.tags.definition.write")
+        );
 
         InvocationResult call = invoke(
             "/mcp",

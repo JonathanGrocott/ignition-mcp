@@ -12,6 +12,8 @@ Implemented V1 surface:
   - `ignition.tags.browse`
   - `ignition.tags.read`
   - `ignition.tags.write`
+  - `ignition.tags.definition.read`
+  - `ignition.tags.definition.write`
   - `ignition.historian.query`
   - `ignition.alarms.list`
   - `ignition.alarms.acknowledge`
@@ -121,6 +123,46 @@ Commit mutation:
       "writes": [
         { "path": "[default]MCP/Setpoint", "value": 42 }
       ]
+    }
+  }
+}
+```
+
+Read tag definitions (Designer-visible config):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.tags.definition.read",
+    "arguments": {
+      "paths": ["[default]MCP/Setpoint"],
+      "recursive": false
+    }
+  }
+}
+```
+
+Create/edit tag definition (requires write permission and `commit=true`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.tags.definition.write",
+    "arguments": {
+      "operation": "upsert",
+      "path": "[default]MCP/NewTag",
+      "tagObjectType": "AtomicTag",
+      "properties": {
+        "enabled": true,
+        "documentation": "Created by MCP"
+      },
+      "commit": true
     }
   }
 }
