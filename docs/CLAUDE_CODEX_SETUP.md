@@ -48,6 +48,38 @@ claude mcp get ignition-mcp
 
 If you changed `mountAlias`, update the URL path accordingly.
 
+Project JSON alternative (`.mcp.json` in your repo root):
+
+```json
+{
+  "mcpServers": {
+    "ignition-mcp": {
+      "type": "http",
+      "url": "http://localhost:8088/data/ignition-mcp/mcp",
+      "headers": {
+        "X-Ignition-API-Token": "<your_token_here>"
+      }
+    }
+  }
+}
+```
+
+You can also use bearer auth instead:
+
+```json
+{
+  "mcpServers": {
+    "ignition-mcp": {
+      "type": "http",
+      "url": "http://localhost:8088/data/ignition-mcp/mcp",
+      "headers": {
+        "Authorization": "Bearer <your_token_here>"
+      }
+    }
+  }
+}
+```
+
 ## 3) Codex
 
 Codex supports streamable HTTP MCP servers through `codex mcp add --url`.
