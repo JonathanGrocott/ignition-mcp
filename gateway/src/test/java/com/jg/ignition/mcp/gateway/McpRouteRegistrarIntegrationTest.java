@@ -259,6 +259,30 @@ class McpRouteRegistrarIntegrationTest {
         assertEquals(McpDispatcher.JSONRPC_RATE_LIMIT, secondBody.path("error").path("code").asInt());
     }
 
+    @Test
+    void adminStatusIncludesObservabilitySnapshot() throws Exception {
+        invoke(
+            "/mcp",
+            HttpMethod.POST,
+            "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"tools/call\",\"params\":{\"name\":\"ignition.projects.list\",\"arguments\":{}}}",
+            Map.of("X-Ignition-API-Token", "tok-observe"),
+            Map.of()
+        );
+
+        InvocationResult status = invoke(
+            "/admin/status",
+            HttpMethod.GET,
+            "",
+            Map.of(),
+            Map.of()
+        );
+        ObjectNode body = asObjectNode(status.body());
+        assertTrue(body.path("observability").isObject());
+        assertTrue(body.path("observability").path("totalToolCalls").asInt() >= 1);
+        assertTrue(body.path("observability").path("topTools").isArray());
+        assertTrue(body.path("observability").path("recentEvents").isArray());
+    }
+
     private InvocationResult invoke(
         String path,
         HttpMethod method,

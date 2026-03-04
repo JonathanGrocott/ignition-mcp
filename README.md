@@ -43,8 +43,20 @@ Commands:
 
 Build output:
 
-- unsigned module: `build/ignition-mcp.modl`
-- checksum file: `build/ignition-mcp.modl.sha256`
+- unsigned module: `build/ignition-mcp.unsigned.modl`
+- checksum metadata: `build/checksum/checksum.json`
+
+## GitHub Actions
+
+This repo includes CI/CD workflows similar to your other Ignition module projects:
+
+- `.github/workflows/build.yml`
+  - Runs on pushes/PRs to `main|master|develop`
+  - Builds and tests the module
+  - Uploads `.unsigned.modl` + checksum artifacts
+- `.github/workflows/release.yml`
+  - Runs on version tags `v*` (and manual dispatch)
+  - Builds/tests, creates checksum file, and publishes a GitHub Release with module artifacts
 
 ## Install On Ignition Gateway
 
@@ -55,7 +67,7 @@ Build output:
 Example on macOS/Linux:
 
 ```bash
-cp build/ignition-mcp.modl /usr/local/ignition/user-lib/modules/ignition-mcp.unsigned.modl
+cp build/ignition-mcp.unsigned.modl /usr/local/ignition/user-lib/modules/ignition-mcp.unsigned.modl
 sudo systemctl restart ignition
 ```
 
@@ -296,6 +308,7 @@ Single profile fields are implemented in `McpServerConfigResource`:
 
 - This is a gateway-only V1 implementation (no Designer/Vision scope).
 - Gateway UI page is available under `Services > Ignition MCP > Configuration`.
+- Admin UI includes live observability panels (tool calls, success/error ratio, write allow/deny counts, top tools, recent events).
 - MCP traffic uses the existing Ignition web server port (same port as Gateway HTTP/HTTPS). A separate MCP port is not exposed in this version.
 - Historian and alarm integrations are scaffolded behind the final MCP contract and safety checks; complete project-specific binding can be expanded per gateway data model/runtime APIs.
 

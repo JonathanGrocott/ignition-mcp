@@ -336,13 +336,14 @@ public class McpRouteRegistrar {
         out.put("sseFallbackEnabled", config.sseFallbackEnabled());
         out.put("activeSessions", sessionManager.activeSessionCount());
         out.put("queuedEvents", sessionManager.queuedEventCount());
+        out.set("observability", objectMapper.valueToTree(auditLogger.snapshot()));
 
         ObjectNode byTransport = out.putObject("sessionsByTransport");
         for (Map.Entry<String, Long> entry : sessionManager.activeSessionsByTransport().entrySet()) {
             byTransport.put(entry.getKey(), entry.getValue());
         }
 
-        WebUiSession.find(requestContext)
+        tryFindWebUiSession(requestContext)
             .ifPresent(session -> out.put("csrfToken", session.getCsrfToken()));
         out.set("config", toConfigJson(config));
         return out;
@@ -353,7 +354,7 @@ public class McpRouteRegistrar {
         response.setContentType(RouteGroup.TYPE_JSON);
 
         ObjectNode out = objectMapper.createObjectNode();
-        WebUiSession.find(requestContext)
+        tryFindWebUiSession(requestContext)
             .ifPresent(session -> out.put("csrfToken", session.getCsrfToken()));
         out.set("config", toConfigJson(configService.getConfig()));
         return out;
@@ -552,5 +553,14 @@ public class McpRouteRegistrar {
         ObjectNode out = objectMapper.createObjectNode();
         out.set("error", TextNode.valueOf(message));
         return out;
+    }
+
+    private Optional<WebUiSession> tryFindWebUiSession(RequestContext requestContext) {
+        try {
+            return WebUiSession.find(requestContext).map(session -> (WebUiSession) session);
+        }
+        catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 }
