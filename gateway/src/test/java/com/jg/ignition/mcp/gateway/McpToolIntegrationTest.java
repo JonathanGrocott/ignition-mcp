@@ -65,8 +65,10 @@ class McpToolIntegrationTest {
             List.of("*"),
             List.of("[default]MCP/*"),
             List.of("*"),
+            List.of("*"),
             "",
-            5
+            5,
+            1000
         );
 
         ToolCallContext callContext = new ToolCallContext(
@@ -110,8 +112,10 @@ class McpToolIntegrationTest {
             List.of("*"),
             List.of("[default]MCP/*"),
             List.of("prov:allowed*"),
+            List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
 
         ToolCallContext context = new ToolCallContext(

@@ -28,8 +28,10 @@ class SafetyPolicyEngineTest {
             java.util.List.of("[default]Line1/*"),
             java.util.List.of("[default]MCP/*"),
             java.util.List.of("*"),
+            java.util.List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
 
         SafetyPolicyEngine engine = new SafetyPolicyEngine(() -> config);
@@ -62,8 +64,10 @@ class SafetyPolicyEngineTest {
             java.util.List.of("[default]AreaA/*"),
             java.util.List.of("[default]MCP/*"),
             java.util.List.of("prov:*"),
+            java.util.List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
         SafetyPolicyEngine engine = new SafetyPolicyEngine(() -> config);
 

@@ -96,5 +96,5 @@ Expected: HTTP `200` with `jsonrpc` initialize result.
 - `503 Service Unavailable`:
   - MCP module disabled in config
 - Tool calls blocked:
-  - check allowlists (`allowedTagWritePatterns`, `allowedAlarmAckSources`)
+  - check allowlists (`allowedTagWritePatterns`, `allowedAlarmAckSources`, `allowedNamedQueryExecutePatterns`)
   - check rate limits and `defaultDryRun` behavior

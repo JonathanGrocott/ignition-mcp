@@ -317,8 +317,10 @@ class McpRouteRegistrarIntegrationTest {
             List.of("*"),
             List.of("[default]MCP/*"),
             List.of("*"),
+            List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
     }
 
@@ -338,8 +340,10 @@ class McpRouteRegistrarIntegrationTest {
             List.of("*"),
             writePatterns,
             List.of("*"),
+            List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
     }
 

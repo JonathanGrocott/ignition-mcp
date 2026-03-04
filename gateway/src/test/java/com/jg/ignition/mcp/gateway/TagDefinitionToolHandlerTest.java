@@ -74,8 +74,10 @@ class TagDefinitionToolHandlerTest {
             List.of("*"),
             List.of("[default]MCP/*"),
             List.of("*"),
+            List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
 
         ToolCallContext context = new ToolCallContext(
@@ -123,8 +125,10 @@ class TagDefinitionToolHandlerTest {
             List.of("*"),
             List.of("[default]MCP/*"),
             List.of("*"),
+            List.of("*"),
             "",
-            5000
+            5000,
+            1000
         );
 
         ToolCallContext context = new ToolCallContext(

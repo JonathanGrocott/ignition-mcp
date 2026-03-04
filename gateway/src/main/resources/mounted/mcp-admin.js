@@ -136,8 +136,10 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           allowedTagReadPatterns: Array.isArray(cfg.allowedTagReadPatterns) ? cfg.allowedTagReadPatterns : ["*"],
           allowedTagWritePatterns: Array.isArray(cfg.allowedTagWritePatterns) ? cfg.allowedTagWritePatterns : [],
           allowedAlarmAckSources: Array.isArray(cfg.allowedAlarmAckSources) ? cfg.allowedAlarmAckSources : ["*"],
+          allowedNamedQueryExecutePatterns: Array.isArray(cfg.allowedNamedQueryExecutePatterns) ? cfg.allowedNamedQueryExecutePatterns : ["*"],
           historianDefaultProvider: cfg.historianDefaultProvider || "",
-          historianMaxRows: asNumber(cfg.historianMaxRows, 5000)
+          historianMaxRows: asNumber(cfg.historianMaxRows, 5000),
+          namedQueryMaxRows: asNumber(cfg.namedQueryMaxRows, 1000)
         };
       }
 
@@ -287,6 +289,14 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                 })
               ),
               e("div", { className: "mcp-admin-field" },
+                e("label", null, "Named Query Max Rows"),
+                e("input", {
+                  type: "number",
+                  value: config.namedQueryMaxRows,
+                  onChange: ev => setNum("namedQueryMaxRows", ev.target.value)
+                })
+              ),
+              e("div", { className: "mcp-admin-field" },
                 e("label", null, "Allowed Origins (comma/new line)"),
                 e("textarea", {
                   value: listToText(config.allowedOrigins),
@@ -319,6 +329,13 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                 e("textarea", {
                   value: listToText(config.allowedAlarmAckSources),
                   onChange: ev => setList("allowedAlarmAckSources", ev.target.value)
+                })
+              ),
+              e("div", { className: "mcp-admin-field" },
+                e("label", null, "Allowed Named Query Execute Patterns"),
+                e("textarea", {
+                  value: listToText(config.allowedNamedQueryExecutePatterns),
+                  onChange: ev => setList("allowedNamedQueryExecutePatterns", ev.target.value)
                 })
               )
             ),

@@ -40,6 +40,15 @@ public class SafetyPolicyEngine {
         return matchesAny(configSupplier.get().allowedAlarmAckSources(), source);
     }
 
+    public boolean isNamedQueryExecuteAllowed(String projectName, String queryPath) {
+        McpServerConfigResource config = configSupplier.get();
+        String fullPath = (projectName == null ? "" : projectName.trim())
+            + "/"
+            + (queryPath == null ? "" : queryPath.trim());
+        return matchesAny(config.allowedNamedQueryExecutePatterns(), fullPath)
+            || matchesAny(config.allowedNamedQueryExecutePatterns(), queryPath);
+    }
+
     public boolean isDryRun(JsonNode arguments) {
         McpServerConfigResource config = configSupplier.get();
         if (arguments == null || !arguments.has("commit")) {
@@ -58,6 +67,10 @@ public class SafetyPolicyEngine {
 
     public String historianDefaultProvider() {
         return configSupplier.get().historianDefaultProvider();
+    }
+
+    public int namedQueryMaxRows() {
+        return configSupplier.get().namedQueryMaxRows();
     }
 
     private boolean matchesAny(List<String> patterns, String value) {

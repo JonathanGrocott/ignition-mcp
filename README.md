@@ -14,12 +14,16 @@ Implemented V1 surface:
   - `ignition.tags.write`
   - `ignition.tags.definition.read`
   - `ignition.tags.definition.write`
+  - `ignition.projects.list`
+  - `ignition.namedqueries.list`
+  - `ignition.namedqueries.read`
+  - `ignition.namedqueries.execute`
   - `ignition.historian.query`
   - `ignition.alarms.list`
   - `ignition.alarms.acknowledge`
 - Safety controls:
   - request and write rate limits (per token)
-  - tag/alarm allowlist checks
+  - tag/alarm/named-query allowlist checks
   - dry-run default for mutating tools (`commit=true` required to commit)
 - Persisted gateway config resource (`mcp-config`) via `NamedResourceHandler`
 
@@ -176,12 +180,78 @@ Read tag definitions (Designer-visible config):
 }
 ```
 
+List configured designer projects:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.projects.list",
+    "arguments": {
+      "includeNamedQueryCounts": true
+    }
+  }
+}
+```
+
+List named queries for one project:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.namedqueries.list",
+    "arguments": {
+      "project": "samplequickstart"
+    }
+  }
+}
+```
+
+Read one named query (SQL and parameters):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.namedqueries.read",
+    "arguments": {
+      "project": "samplequickstart",
+      "path": "Reports/Audit Log"
+    }
+  }
+}
+```
+
+Execute one named query (dry-run default):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.namedqueries.execute",
+    "arguments": {
+      "project": "samplequickstart",
+      "path": "Ignition 101/Data Entry/Tank List"
+    }
+  }
+}
+```
+
 Create/edit tag definition (requires write permission and `commit=true`):
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 6,
+  "id": 10,
   "method": "tools/call",
   "params": {
     "name": "ignition.tags.definition.write",
@@ -217,8 +287,10 @@ Single profile fields are implemented in `McpServerConfigResource`:
 - `allowedTagReadPatterns`
 - `allowedTagWritePatterns`
 - `allowedAlarmAckSources`
+- `allowedNamedQueryExecutePatterns`
 - `historianDefaultProvider`
 - `historianMaxRows`
+- `namedQueryMaxRows`
 
 ## Notes
 
@@ -230,13 +302,15 @@ Single profile fields are implemented in `McpServerConfigResource`:
 ## Client Setup
 
 - See [Claude and Codex setup guide](docs/CLAUDE_CODEX_SETUP.md).
+- Next planned capabilities: [next iteration backlog](docs/NEXT_ITERATION.md).
 
 ## Smoke Test
 
-Use the provided script to run initialize/list-tools/tag-definition read+write tests:
+Use the provided scripts to run MCP smoke tests:
 
 ```bash
 ./scripts/test_mcp_local.sh
+./scripts/test_mcp_extended.sh
 ```
 
 Token source order in the script:

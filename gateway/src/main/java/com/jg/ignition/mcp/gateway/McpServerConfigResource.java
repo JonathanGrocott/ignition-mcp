@@ -97,6 +97,11 @@ public record McpServerConfigResource(
     @FormField(FormFieldType.TEXT)
     List<String> allowedAlarmAckSources,
 
+    @FormCategory("Safety")
+    @Label("Allowed Named Query Execute Patterns")
+    @FormField(FormFieldType.TEXT)
+    List<String> allowedNamedQueryExecutePatterns,
+
     @FormCategory("Historian")
     @Label("Historian Default Provider")
     @FormField(FormFieldType.TEXT)
@@ -107,7 +112,13 @@ public record McpServerConfigResource(
     @Label("Historian Max Rows")
     @FormField(FormFieldType.NUMBER)
     @DefaultValue("5000")
-    Integer historianMaxRows
+    Integer historianMaxRows,
+
+    @FormCategory("Limits")
+    @Label("Named Query Max Rows")
+    @FormField(FormFieldType.NUMBER)
+    @DefaultValue("1000")
+    Integer namedQueryMaxRows
 ) {
 
     private static final boolean DEFAULT_ENABLED = true;
@@ -124,8 +135,10 @@ public record McpServerConfigResource(
     private static final List<String> DEFAULT_ALLOWED_TAG_READ_PATTERNS = List.of("*");
     private static final List<String> DEFAULT_ALLOWED_TAG_WRITE_PATTERNS = List.of("[default]MCP/*");
     private static final List<String> DEFAULT_ALLOWED_ALARM_ACK_SOURCES = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS = List.of("*");
     private static final String DEFAULT_HISTORIAN_PROVIDER = "";
     private static final int DEFAULT_HISTORIAN_MAX_ROWS = 5000;
+    private static final int DEFAULT_NAMED_QUERY_MAX_ROWS = 1000;
 
     public static final ResourceType RESOURCE_TYPE = new ResourceType(McpConstants.MODULE_ID, "mcp-config");
 
@@ -144,8 +157,10 @@ public record McpServerConfigResource(
         DEFAULT_ALLOWED_TAG_READ_PATTERNS,
         DEFAULT_ALLOWED_TAG_WRITE_PATTERNS,
         DEFAULT_ALLOWED_ALARM_ACK_SOURCES,
+        DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS,
         DEFAULT_HISTORIAN_PROVIDER,
-        DEFAULT_HISTORIAN_MAX_ROWS
+        DEFAULT_HISTORIAN_MAX_ROWS,
+        DEFAULT_NAMED_QUERY_MAX_ROWS
     );
 
     public static final ResourceTypeMeta<McpServerConfigResource> META = ResourceTypeMeta
@@ -183,8 +198,12 @@ public record McpServerConfigResource(
         allowedAlarmAckSources = allowedAlarmAckSources == null
             ? DEFAULT_ALLOWED_ALARM_ACK_SOURCES
             : List.copyOf(allowedAlarmAckSources);
+        allowedNamedQueryExecutePatterns = allowedNamedQueryExecutePatterns == null
+            ? DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS
+            : List.copyOf(allowedNamedQueryExecutePatterns);
         historianDefaultProvider = historianDefaultProvider == null ? DEFAULT_HISTORIAN_PROVIDER : historianDefaultProvider;
         historianMaxRows = positiveOrDefault(historianMaxRows, DEFAULT_HISTORIAN_MAX_ROWS);
+        namedQueryMaxRows = positiveOrDefault(namedQueryMaxRows, DEFAULT_NAMED_QUERY_MAX_ROWS);
     }
 
     private static int positiveOrDefault(Integer value, int defaultValue) {
@@ -209,6 +228,9 @@ public record McpServerConfigResource(
         }
         if (historianMaxRows <= 0) {
             errors.addFieldMessage("historianMaxRows", "must be greater than 0");
+        }
+        if (namedQueryMaxRows <= 0) {
+            errors.addFieldMessage("namedQueryMaxRows", "must be greater than 0");
         }
     }
 }
