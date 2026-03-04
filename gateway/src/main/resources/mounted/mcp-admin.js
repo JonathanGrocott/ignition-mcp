@@ -17,25 +17,41 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
       const STYLE_TEXT = `
 .mcp-admin-root {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  background: linear-gradient(140deg, #f6f8fa, #edf2f5 60%, #f7fbfd);
+  background: linear-gradient(145deg, #f7f9fb, #edf3f7 58%, #f4fafc);
   color: #13212d;
   min-height: 100vh;
   padding: 22px;
 }
-.mcp-admin-header { margin-bottom: 14px; }
+.mcp-admin-shell { max-width: 1220px; margin: 0 auto; }
+.mcp-admin-header {
+  margin-bottom: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(18, 33, 45, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 24px rgba(18, 33, 45, 0.06);
+}
 .mcp-admin-title { font-size: clamp(24px, 4vw, 34px); font-weight: 700; }
-.mcp-admin-sub { font-size: 13px; color: #3b5568; margin-top: 4px; }
+.mcp-admin-sub { font-size: 13px; color: #3b5568; margin-top: 5px; }
 .mcp-admin-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 .mcp-admin-card {
-  background: rgba(255,255,255,0.94);
-  border: 1px solid rgba(18, 33, 45, 0.1);
-  border-radius: 12px;
-  box-shadow: 0 10px 24px rgba(18, 33, 45, 0.08);
-  padding: 12px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(18, 33, 45, 0.09);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(18, 33, 45, 0.07);
+  padding: 14px;
+}
+.mcp-admin-card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #496174;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 .mcp-admin-kv { margin: 6px 0; font-size: 13px; color: #2f4b5e; }
 .mcp-admin-kv strong { color: #12293b; }
@@ -51,7 +67,27 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
   letter-spacing: 0.08em;
   color: #526f83;
   display: block;
+  margin-bottom: 0;
+}
+.mcp-admin-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 4px;
+  gap: 8px;
+}
+.mcp-admin-help {
+  border: 1px solid #bdd0dd;
+  color: #3f6076;
+  width: 17px;
+  height: 17px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: help;
+  flex: 0 0 auto;
 }
 .mcp-admin-field input, .mcp-admin-field textarea {
   width: 100%;
@@ -61,7 +97,18 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
   background: white;
   font-size: 13px;
 }
+.mcp-admin-field input:focus, .mcp-admin-field textarea:focus {
+  outline: 2px solid #6fa3c9;
+  outline-offset: 1px;
+  border-color: #7ca9ca;
+}
 .mcp-admin-field textarea { min-height: 74px; resize: vertical; }
+.mcp-admin-field-hint {
+  margin-top: 4px;
+  color: #4d6679;
+  font-size: 11px;
+  line-height: 1.4;
+}
 .mcp-admin-checks { display: grid; gap: 6px; margin-top: 6px; }
 .mcp-admin-check { font-size: 13px; color: #2f4b5e; display: flex; gap: 8px; align-items: center; }
 .mcp-admin-actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -117,6 +164,17 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
       function asNumber(value, fallback) {
         const n = Number(value);
         return Number.isFinite(n) ? n : fallback;
+      }
+
+      function helpLabel(text, helpText) {
+        return e("div", { className: "mcp-admin-label-row" },
+          e("label", { title: helpText || "" }, text),
+          helpText ? e("span", { className: "mcp-admin-help", title: helpText, "aria-label": helpText }, "?") : null
+        );
+      }
+
+      function fieldHint(text) {
+        return text ? e("div", { className: "mcp-admin-field-hint" }, text) : null;
       }
 
       function normalizeConfig(raw) {
@@ -210,85 +268,92 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         }
 
         return e("div", { className: "mcp-admin-root" },
-          e("div", { className: "mcp-admin-header" },
-            e("div", { className: "mcp-admin-title" }, "Ignition MCP"),
-            e("div", { className: "mcp-admin-sub" }, `Route base: /data/${alias} (served by the Ignition gateway web server port)`)
-          ),
-
-          e("div", { className: "mcp-admin-grid" },
-            e("div", { className: "mcp-admin-card" },
-              e("div", { className: "mcp-admin-kv" }, e("strong", null, "Service"), `: ${status.running ? "Running" : "Not running"}`),
-              e("div", { className: "mcp-admin-kv" }, e("strong", null, "Enabled"), `: ${config.enabled ? "Yes" : "No"}`),
-              e("div", { className: "mcp-admin-kv" }, e("strong", null, "Active Sessions"), `: ${status.activeSessions || 0}`),
-              e("div", { className: "mcp-admin-kv" }, e("strong", null, "Queued Events"), `: ${status.queuedEvents || 0}`),
-              e("div", { className: "mcp-admin-kv" }, e("strong", null, "By Transport"), `: ${JSON.stringify(status.sessionsByTransport || {})}`)
+          e("div", { className: "mcp-admin-shell" },
+            e("div", { className: "mcp-admin-header" },
+              e("div", { className: "mcp-admin-title" }, "Ignition MCP"),
+              e("div", { className: "mcp-admin-sub" }, "Gateway configuration and runtime status.")
             ),
-            e("div", { className: "mcp-admin-card" },
-              e("div", { className: "mcp-admin-note" },
-                "Port note: this module uses Ignition's built-in web server. A separate MCP port is not exposed in this version."
-              )
-            )
-          ),
 
-          e("div", { className: "mcp-admin-card", style: { marginTop: "12px" } },
-            e("div", { className: "mcp-admin-form" },
+            e("div", { className: "mcp-admin-grid" },
+              e("div", { className: "mcp-admin-card" },
+                e("div", { className: "mcp-admin-card-title" }, "Runtime"),
+                e("div", { className: "mcp-admin-kv" }, e("strong", null, "Service"), `: ${status.running ? "Running" : "Not running"}`),
+                e("div", { className: "mcp-admin-kv" }, e("strong", null, "Enabled"), `: ${config.enabled ? "Yes" : "No"}`),
+                e("div", { className: "mcp-admin-kv" }, e("strong", null, "Active Sessions"), `: ${status.activeSessions || 0}`),
+                e("div", { className: "mcp-admin-kv" }, e("strong", null, "Queued Events"), `: ${status.queuedEvents || 0}`),
+                e("div", { className: "mcp-admin-kv" }, e("strong", null, "By Transport"), `: ${JSON.stringify(status.sessionsByTransport || {})}`)
+              )
+            ),
+
+            e("div", { className: "mcp-admin-card", style: { marginTop: "12px" } },
+              e("div", { className: "mcp-admin-card-title" }, "Configuration"),
+              e("div", { className: "mcp-admin-note" }, "List fields accept either comma-separated values or one value per line."),
+              e("div", { className: "mcp-admin-form" },
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Mount Alias"),
+                helpLabel("Mount Alias", "Used in the route path /data/<mountAlias>. Letters, numbers, dashes and underscores are recommended."),
                 e("input", {
                   type: "text",
                   value: config.mountAlias,
                   onChange: ev => setText("mountAlias", ev.target.value)
-                })
+                }),
+                fieldHint("Changing this value updates the MCP endpoint path.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Historian Default Provider"),
+                helpLabel("Historian Default Provider", "Ignition historian provider name used when the tool request omits provider."),
                 e("input", {
                   type: "text",
                   value: config.historianDefaultProvider,
                   onChange: ev => setText("historianDefaultProvider", ev.target.value)
-                })
+                }),
+                fieldHint("Leave blank to use Ignition default behavior.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Max Concurrent Sessions"),
+                helpLabel("Max Concurrent Sessions", "Maximum number of live MCP sessions. Must be greater than 0."),
                 e("input", {
                   type: "number",
                   value: config.maxConcurrentSessions,
                   onChange: ev => setNum("maxConcurrentSessions", ev.target.value)
-                })
+                }),
+                fieldHint("Positive integer. Default is 200.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Max Requests / Minute / Token"),
+                helpLabel("Max Requests / Minute / Token", "Per-token request rate limit. Must be greater than 0."),
                 e("input", {
                   type: "number",
                   value: config.maxRequestsPerMinutePerToken,
                   onChange: ev => setNum("maxRequestsPerMinutePerToken", ev.target.value)
-                })
+                }),
+                fieldHint("Positive integer. Default is 300.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Max Write Ops / Minute / Token"),
+                helpLabel("Max Write Ops / Minute / Token", "Per-token mutation/write rate limit. Must be greater than 0."),
                 e("input", {
                   type: "number",
                   value: config.maxWriteOpsPerMinutePerToken,
                   onChange: ev => setNum("maxWriteOpsPerMinutePerToken", ev.target.value)
-                })
+                }),
+                fieldHint("Positive integer. Default is 60.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Max Batch Write Size"),
+                helpLabel("Max Batch Write Size", "Maximum number of writes accepted in a single batch request. Must be greater than 0."),
                 e("input", {
                   type: "number",
                   value: config.maxBatchWriteSize,
                   onChange: ev => setNum("maxBatchWriteSize", ev.target.value)
-                })
+                }),
+                fieldHint("Positive integer. Default is 50.")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Historian Max Rows"),
+                helpLabel("Historian Max Rows", "Upper limit for historian query row counts."),
                 e("input", {
                   type: "number",
                   value: config.historianMaxRows,
                   onChange: ev => setNum("historianMaxRows", ev.target.value)
-                })
+                }),
+                fieldHint("Positive integer. Default is 5000.")
               ),
               e("div", { className: "mcp-admin-field" },
+<<<<<<< ours
                 e("label", null, "Named Query Max Rows"),
                 e("input", {
                   type: "number",
@@ -298,37 +363,45 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
               ),
               e("div", { className: "mcp-admin-field" },
                 e("label", null, "Allowed Origins (comma/new line)"),
+=======
+                helpLabel("Allowed Origins", "Matched against the HTTP Origin header. Supports glob wildcards: * and ?. Leave empty to allow any origin."),
+>>>>>>> theirs
                 e("textarea", {
                   value: listToText(config.allowedOrigins),
                   onChange: ev => setList("allowedOrigins", ev.target.value)
-                })
+                }),
+                fieldHint("Examples: https://app.example.com, https://*.example.com")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Allowed Hosts (comma/new line)"),
+                helpLabel("Allowed Hosts", "Matched against Host header (or server name). Supports glob wildcards: * and ?. Include :port if needed. Leave empty to allow any host."),
                 e("textarea", {
                   value: listToText(config.allowedHosts),
                   onChange: ev => setList("allowedHosts", ev.target.value)
-                })
+                }),
+                fieldHint("Examples: localhost:8088, *.corp.example.com")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Allowed Tag Read Patterns"),
+                helpLabel("Allowed Tag Read Patterns", "Tag paths allowed for read operations. Supports glob wildcards: * and ?."),
                 e("textarea", {
                   value: listToText(config.allowedTagReadPatterns),
                   onChange: ev => setList("allowedTagReadPatterns", ev.target.value)
-                })
+                }),
+                fieldHint("Examples: *, [default]MCP/*")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Allowed Tag Write Patterns"),
+                helpLabel("Allowed Tag Write Patterns", "Tag paths allowed for write operations. Supports glob wildcards: * and ?."),
                 e("textarea", {
                   value: listToText(config.allowedTagWritePatterns),
                   onChange: ev => setList("allowedTagWritePatterns", ev.target.value)
-                })
+                }),
+                fieldHint("Example: [default]MCP/*")
               ),
               e("div", { className: "mcp-admin-field" },
-                e("label", null, "Allowed Alarm Ack Sources"),
+                helpLabel("Allowed Alarm Ack Sources", "Allowed source strings for alarm acknowledge calls. Supports glob wildcards: * and ?."),
                 e("textarea", {
                   value: listToText(config.allowedAlarmAckSources),
                   onChange: ev => setList("allowedAlarmAckSources", ev.target.value)
+<<<<<<< ours
                 })
               ),
               e("div", { className: "mcp-admin-field" },
@@ -346,41 +419,55 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   type: "checkbox",
                   checked: !!config.enabled,
                   onChange: ev => setBool("enabled", ev.target.checked)
+=======
+>>>>>>> theirs
                 }),
-                "MCP Enabled"
-              ),
-              e("label", { className: "mcp-admin-check" },
-                e("input", {
-                  type: "checkbox",
-                  checked: !!config.streamableEnabled,
-                  onChange: ev => setBool("streamableEnabled", ev.target.checked)
-                }),
-                "Streamable Transport Enabled"
-              ),
-              e("label", { className: "mcp-admin-check" },
-                e("input", {
-                  type: "checkbox",
-                  checked: !!config.sseFallbackEnabled,
-                  onChange: ev => setBool("sseFallbackEnabled", ev.target.checked)
-                }),
-                "SSE Fallback Enabled"
-              ),
-              e("label", { className: "mcp-admin-check" },
-                e("input", {
-                  type: "checkbox",
-                  checked: !!config.defaultDryRun,
-                  onChange: ev => setBool("defaultDryRun", ev.target.checked)
-                }),
-                "Default Dry-Run for Mutations"
+                fieldHint("Use * to allow any source.")
               )
-            ),
+              ),
 
-            e("div", { className: "mcp-admin-actions" },
-              e("button", { className: "mcp-admin-btn", onClick: saveConfig, disabled: saving }, saving ? "Saving..." : "Save Configuration"),
-              e("button", { className: "mcp-admin-btn", onClick: loadStatus, disabled: loading || saving }, "Refresh")
-            ),
-            error ? e("div", { className: "mcp-admin-error" }, error) : null,
-            message ? e("div", { className: "mcp-admin-ok" }, message) : null
+              e("div", { className: "mcp-admin-checks" },
+                e("label", { className: "mcp-admin-check", title: "Enable or disable all MCP endpoints." },
+                  e("input", {
+                    type: "checkbox",
+                    checked: !!config.enabled,
+                    onChange: ev => setBool("enabled", ev.target.checked)
+                  }),
+                  "MCP Enabled"
+                ),
+                e("label", { className: "mcp-admin-check", title: "Enable streamable HTTP transport." },
+                  e("input", {
+                    type: "checkbox",
+                    checked: !!config.streamableEnabled,
+                    onChange: ev => setBool("streamableEnabled", ev.target.checked)
+                  }),
+                  "Streamable Transport Enabled"
+                ),
+                e("label", { className: "mcp-admin-check", title: "Allow SSE fallback transport when needed." },
+                  e("input", {
+                    type: "checkbox",
+                    checked: !!config.sseFallbackEnabled,
+                    onChange: ev => setBool("sseFallbackEnabled", ev.target.checked)
+                  }),
+                  "SSE Fallback Enabled"
+                ),
+                e("label", { className: "mcp-admin-check", title: "Start mutation operations in dry-run mode by default." },
+                  e("input", {
+                    type: "checkbox",
+                    checked: !!config.defaultDryRun,
+                    onChange: ev => setBool("defaultDryRun", ev.target.checked)
+                  }),
+                  "Default Dry-Run for Mutations"
+                )
+              ),
+
+              e("div", { className: "mcp-admin-actions" },
+                e("button", { className: "mcp-admin-btn", onClick: saveConfig, disabled: saving }, saving ? "Saving..." : "Save Configuration"),
+                e("button", { className: "mcp-admin-btn", onClick: loadStatus, disabled: loading || saving }, "Refresh")
+              ),
+              error ? e("div", { className: "mcp-admin-error" }, error) : null,
+              message ? e("div", { className: "mcp-admin-ok" }, message) : null
+            )
           )
         );
       }
