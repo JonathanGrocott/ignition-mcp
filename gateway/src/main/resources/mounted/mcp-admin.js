@@ -351,6 +351,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   onChange: ev => setNum("historianMaxRows", ev.target.value)
                 }),
                 fieldHint("Positive integer. Default is 5000.")
+<<<<<<< ours
               ),
               e("div", { className: "mcp-admin-field" },
 <<<<<<< ours
@@ -364,6 +365,11 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
               e("div", { className: "mcp-admin-field" },
                 e("label", null, "Allowed Origins (comma/new line)"),
 =======
+                helpLabel("Allowed Origins", "Matched against the HTTP Origin header. Supports glob wildcards: * and ?. Leave empty to allow any origin."),
+>>>>>>> theirs
+=======
+              ),
+              e("div", { className: "mcp-admin-field" },
                 helpLabel("Allowed Origins", "Matched against the HTTP Origin header. Supports glob wildcards: * and ?. Leave empty to allow any origin."),
 >>>>>>> theirs
                 e("textarea", {
@@ -402,6 +408,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   value: listToText(config.allowedAlarmAckSources),
                   onChange: ev => setList("allowedAlarmAckSources", ev.target.value)
 <<<<<<< ours
+<<<<<<< ours
                 })
               ),
               e("div", { className: "mcp-admin-field" },
@@ -419,6 +426,8 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   type: "checkbox",
                   checked: !!config.enabled,
                   onChange: ev => setBool("enabled", ev.target.checked)
+=======
+>>>>>>> theirs
 =======
 >>>>>>> theirs
                 }),
