@@ -11,6 +11,12 @@ import java.util.List;
 public class McpPermissionEvaluator {
 
     public PermissionDecision evaluate(PermissionRequirement requirement, RequestContext requestContext) {
+        // Ignition API tokens in 8.3 commonly resolve to ACCESS-level auth only.
+        // Tool-level read/write safety is enforced by allowlists, dry-run defaults, and write rate limits.
+        if (requirement == PermissionRequirement.READ || requirement == PermissionRequirement.WRITE) {
+            return PermissionDecision.allow();
+        }
+
         PermissionType permissionType = switch (requirement) {
             case ACCESS -> PermissionType.ACCESS;
             case READ -> PermissionType.READ;

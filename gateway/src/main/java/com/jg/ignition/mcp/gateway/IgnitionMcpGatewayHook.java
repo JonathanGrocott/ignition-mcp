@@ -5,6 +5,7 @@ import com.inductiveautomation.ignition.common.licensing.LicenseState;
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup;
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
+import com.inductiveautomation.ignition.gateway.web.systemjs.SystemJsModule;
 import com.jg.ignition.mcp.common.McpConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,12 +24,6 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
     public void setup(GatewayContext context) {
         this.gatewayContext = context;
         this.configService = new McpConfigService(context);
-        logger.info("Ignition MCP gateway setup complete");
-    }
-
-    @Override
-    public void startup(LicenseState activationState) {
-        configService.startup();
 
         ObjectMapper mapper = new ObjectMapper();
         McpAuthService authService = new McpAuthService(gatewayContext);
@@ -41,7 +36,7 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
 
         this.routeRegistrar = new McpRouteRegistrar(
             gatewayContext,
-            configService.getConfig().mountAlias(),
+            McpConstants.MOUNT_ALIAS_DEFAULT,
             mapper,
             configService,
             authService,
@@ -50,7 +45,13 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
             dispatcher,
             auditLogger
         );
+        logger.info("Ignition MCP gateway setup complete");
+    }
 
+    @Override
+    public void startup(LicenseState activationState) {
+        configService.startup();
+        registerWebUi();
         logger.info("Ignition MCP gateway started");
     }
 
@@ -64,10 +65,6 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
 
     @Override
     public void mountRouteHandlers(RouteGroup routes) {
-        if (routeRegistrar == null) {
-            logger.warn("Route registrar not initialized yet; skipping route mount");
-            return;
-        }
         routeRegistrar.mount(routes);
     }
 
@@ -80,7 +77,31 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
     }
 
     @Override
+    public Optional<String> getMountedResourceFolder() {
+        return Optional.of("mounted");
+    }
+
+    @Override
     public boolean isFreeModule() {
         return true;
+    }
+
+    private void registerWebUi() {
+        String alias = configService.getConfig().mountAlias();
+        String resourcePath = "/res/" + alias + "/mcp-admin.js";
+
+        SystemJsModule jsModule = new SystemJsModule(
+            "com.jg.ignition.mcp.gateway",
+            resourcePath
+        );
+
+        gatewayContext.getWebResourceManager().getNavigationModel().getServices()
+            .addCategory("ignition-mcp", category -> category
+                .label("Ignition MCP")
+                .addPage("Configuration", page -> page
+                    .position(50)
+                    .mount("/ignition-mcp", "IgnitionMcpAdmin", jsModule)
+                )
+            );
     }
 }

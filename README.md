@@ -34,30 +34,61 @@ Commands:
 
 ```bash
 ./gradlew test
-./gradlew build
+./gradlew clean zipModule checksumModl
+```
+
+Build output:
+
+- unsigned module: `build/ignition-mcp.modl`
+- checksum file: `build/ignition-mcp.modl.sha256`
+
+## Install On Ignition Gateway
+
+1. Copy the built module file into your Ignition modules directory.
+2. Restart the Ignition gateway service.
+3. Confirm module status in Gateway Web UI (`Config > Modules`).
+
+Example on macOS/Linux:
+
+```bash
+cp build/ignition-mcp.modl /usr/local/ignition/user-lib/modules/ignition-mcp.unsigned.modl
+sudo systemctl restart ignition
 ```
 
 ## Module Mount Path
 
 Module alias defaults to:
 
-- `/main/data/ignition-mcp/*`
+- `/data/ignition-mcp/*`
 
 Routes:
 
-- `POST /main/data/ignition-mcp/mcp`
-- `GET /main/data/ignition-mcp/mcp`
-- `DELETE /main/data/ignition-mcp/mcp`
-- `GET /main/data/ignition-mcp/sse`
-- `POST /main/data/ignition-mcp/message`
+- `POST /data/ignition-mcp/mcp`
+- `GET /data/ignition-mcp/mcp`
+- `DELETE /data/ignition-mcp/mcp`
+- `GET /data/ignition-mcp/sse`
+- `POST /data/ignition-mcp/message`
+
+Gateway admin routes (Gateway Web UI session required):
+
+- `GET /data/ignition-mcp/admin/status`
+- `GET /data/ignition-mcp/admin/config`
+- `POST /data/ignition-mcp/admin/config`
 
 ## Auth
 
-All routes require:
+MCP transport routes require:
 
-- Header: `X-Ignition-API-Token: <token>`
+- `X-Ignition-API-Token: <token>` header, or
+- `Authorization: Bearer <token>` header
 
-Route-level guard is token `ACCESS`. Tool calls are enforced per tool requirement (`READ` or `WRITE`) in the MCP dispatcher.
+Admin routes use authenticated Ignition Gateway Web UI sessions and CSRF protection.
+
+In Ignition 8.3, API token capabilities are typically ACCESS-scoped. This module still distinguishes tool intent (`READ` vs `WRITE`) and enforces write safety with:
+
+- allowlist checks (`allowedTagWritePatterns`, `allowedAlarmAckSources`)
+- dry-run default (`defaultDryRun`)
+- per-token write rate limiting (`maxWriteOpsPerMinutePerToken`)
 
 ## Session Header
 
@@ -192,4 +223,25 @@ Single profile fields are implemented in `McpServerConfigResource`:
 ## Notes
 
 - This is a gateway-only V1 implementation (no Designer/Vision scope).
+- Gateway UI page is available under `Services > Ignition MCP > Configuration`.
+- MCP traffic uses the existing Ignition web server port (same port as Gateway HTTP/HTTPS). A separate MCP port is not exposed in this version.
 - Historian and alarm integrations are scaffolded behind the final MCP contract and safety checks; complete project-specific binding can be expanded per gateway data model/runtime APIs.
+
+## Client Setup
+
+- See [Claude and Codex setup guide](docs/CLAUDE_CODEX_SETUP.md).
+
+## Smoke Test
+
+Use the provided script to run initialize/list-tools/tag-definition read+write tests:
+
+```bash
+./scripts/test_mcp_local.sh
+```
+
+Token source order in the script:
+
+- `IGNITION_API_TOKEN`
+- `X_IGNITION_API_TOKEN`
+- `API_TOKEN`
+- `TOKEN`

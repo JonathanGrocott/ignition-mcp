@@ -4,12 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import com.inductiveautomation.ignition.gateway.auth.apitoken.ApiTokenManager;
+import com.inductiveautomation.ignition.gateway.dataroutes.AccessControlStrategy;
 import com.inductiveautomation.ignition.gateway.dataroutes.HttpMethod;
-import com.inductiveautomation.ignition.gateway.dataroutes.PermissionType;
 import com.inductiveautomation.ignition.gateway.dataroutes.RequestContext;
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
+import com.inductiveautomation.ignition.gateway.web.session.WebUiSession;
 import com.jg.ignition.mcp.common.GlobMatcher;
 import com.jg.ignition.mcp.common.McpConstants;
 import jakarta.servlet.http.HttpServletResponse;
@@ -17,6 +17,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class McpRouteRegistrar {
@@ -61,32 +62,28 @@ public class McpRouteRegistrar {
             .method(HttpMethod.POST)
             .type(RouteGroup.TYPE_JSON)
             .acceptedTypes(RouteGroup.TYPE_JSON)
-            .requirePermission(PermissionType.ACCESS)
-            .accessControl(ApiTokenManager.TOKEN_ACCESS)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(this::handleMcpPost)
             .mount();
 
         routes.newRoute("/mcp")
             .method(HttpMethod.GET)
             .type(EVENT_STREAM_TYPE)
-            .requirePermission(PermissionType.ACCESS)
-            .accessControl(ApiTokenManager.TOKEN_ACCESS)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(this::handleMcpGet)
             .mount();
 
         routes.newRoute("/mcp")
             .method(HttpMethod.DELETE)
             .type(RouteGroup.TYPE_JSON)
-            .requirePermission(PermissionType.ACCESS)
-            .accessControl(ApiTokenManager.TOKEN_ACCESS)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(this::handleMcpDelete)
             .mount();
 
         routes.newRoute("/sse")
             .method(HttpMethod.GET)
             .type(EVENT_STREAM_TYPE)
-            .requirePermission(PermissionType.ACCESS)
-            .accessControl(ApiTokenManager.TOKEN_ACCESS)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(this::handleSseGet)
             .mount();
 
@@ -94,9 +91,30 @@ public class McpRouteRegistrar {
             .method(HttpMethod.POST)
             .type(RouteGroup.TYPE_JSON)
             .acceptedTypes(RouteGroup.TYPE_JSON)
-            .requirePermission(PermissionType.ACCESS)
-            .accessControl(ApiTokenManager.TOKEN_ACCESS)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(this::handleSseMessagePost)
+            .mount();
+
+        routes.newRoute("/admin/status")
+            .method(HttpMethod.GET)
+            .type(RouteGroup.TYPE_JSON)
+            .accessControl(WebUiSession.SESSION_READ)
+            .handler(this::handleAdminStatusGet)
+            .mount();
+
+        routes.newRoute("/admin/config")
+            .method(HttpMethod.GET)
+            .type(RouteGroup.TYPE_JSON)
+            .accessControl(WebUiSession.SESSION_READ)
+            .handler(this::handleAdminConfigGet)
+            .mount();
+
+        routes.newRoute("/admin/config")
+            .method(HttpMethod.POST)
+            .type(RouteGroup.TYPE_JSON)
+            .acceptedTypes(RouteGroup.TYPE_JSON)
+            .accessControl(WebUiSession.SESSION_WRITE)
+            .handler(this::handleAdminConfigPost)
             .mount();
     }
 
@@ -236,7 +254,8 @@ public class McpRouteRegistrar {
 
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("sessionId", sessionId);
-        metadata.put("messageEndpoint", "/main/data/" + mountAlias + "/message?sessionId=" + sessionId);
+        String alias = StringUtils.defaultIfBlank(config.mountAlias(), mountAlias);
+        metadata.put("messageEndpoint", "/data/" + alias + "/message?sessionId=" + sessionId);
         sessionManager.enqueueEvent(sessionId, objectMapper.writeValueAsString(metadata));
 
         return toSsePayload(sessionManager.drainEvents(sessionId));
@@ -300,6 +319,87 @@ public class McpRouteRegistrar {
         out.put("accepted", true);
         out.put("sessionId", sessionId.get());
         out.put("responseQueued", rpcResponse != null);
+        return out;
+    }
+
+    private Object handleAdminStatusGet(RequestContext requestContext, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentType(RouteGroup.TYPE_JSON);
+
+        McpServerConfigResource config = configService.getConfig();
+        ObjectNode out = objectMapper.createObjectNode();
+        out.put("running", true);
+        out.put("mountAlias", config.mountAlias());
+        out.put("routeBase", "/data/" + config.mountAlias());
+        out.put("enabled", config.enabled());
+        out.put("streamableEnabled", config.streamableEnabled());
+        out.put("sseFallbackEnabled", config.sseFallbackEnabled());
+        out.put("activeSessions", sessionManager.activeSessionCount());
+        out.put("queuedEvents", sessionManager.queuedEventCount());
+
+        ObjectNode byTransport = out.putObject("sessionsByTransport");
+        for (Map.Entry<String, Long> entry : sessionManager.activeSessionsByTransport().entrySet()) {
+            byTransport.put(entry.getKey(), entry.getValue());
+        }
+
+        WebUiSession.find(requestContext)
+            .ifPresent(session -> out.put("csrfToken", session.getCsrfToken()));
+        out.set("config", toConfigJson(config));
+        return out;
+    }
+
+    private Object handleAdminConfigGet(RequestContext requestContext, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentType(RouteGroup.TYPE_JSON);
+
+        ObjectNode out = objectMapper.createObjectNode();
+        WebUiSession.find(requestContext)
+            .ifPresent(session -> out.put("csrfToken", session.getCsrfToken()));
+        out.set("config", toConfigJson(configService.getConfig()));
+        return out;
+    }
+
+    private Object handleAdminConfigPost(RequestContext requestContext, HttpServletResponse response) throws IOException {
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentType(RouteGroup.TYPE_JSON);
+
+        JsonNode payload;
+        try {
+            payload = objectMapper.readTree(requestContext.readBody());
+        }
+        catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return simpleError("Invalid JSON payload: " + e.getMessage());
+        }
+
+        JsonNode configNode = payload != null && payload.has("config")
+            ? payload.get("config")
+            : payload;
+        if (configNode == null || !configNode.isObject()) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return simpleError("config payload must be a JSON object");
+        }
+
+        McpServerConfigResource updatedConfig;
+        try {
+            updatedConfig = objectMapper.treeToValue(configNode, McpServerConfigResource.class);
+        }
+        catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return simpleError("Unable to parse config payload: " + e.getMessage());
+        }
+
+        try {
+            configService.upsert(updatedConfig, "web-ui").join();
+        }
+        catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return simpleError("Failed to persist config: " + e.getMessage());
+        }
+
+        ObjectNode out = objectMapper.createObjectNode();
+        out.put("updated", true);
+        out.set("config", toConfigJson(configService.getConfig()));
         return out;
     }
 
@@ -423,6 +523,27 @@ public class McpRouteRegistrar {
             builder.append("data: ").append(event).append("\n\n");
         }
         return builder.toString();
+    }
+
+    private ObjectNode toConfigJson(McpServerConfigResource config) {
+        ObjectNode out = objectMapper.createObjectNode();
+        out.put("enabled", config.enabled());
+        out.put("mountAlias", config.mountAlias());
+        out.set("allowedOrigins", objectMapper.valueToTree(config.allowedOrigins()));
+        out.set("allowedHosts", objectMapper.valueToTree(config.allowedHosts()));
+        out.put("streamableEnabled", config.streamableEnabled());
+        out.put("sseFallbackEnabled", config.sseFallbackEnabled());
+        out.put("maxConcurrentSessions", config.maxConcurrentSessions());
+        out.put("maxRequestsPerMinutePerToken", config.maxRequestsPerMinutePerToken());
+        out.put("maxWriteOpsPerMinutePerToken", config.maxWriteOpsPerMinutePerToken());
+        out.put("defaultDryRun", config.defaultDryRun());
+        out.put("maxBatchWriteSize", config.maxBatchWriteSize());
+        out.set("allowedTagReadPatterns", objectMapper.valueToTree(config.allowedTagReadPatterns()));
+        out.set("allowedTagWritePatterns", objectMapper.valueToTree(config.allowedTagWritePatterns()));
+        out.set("allowedAlarmAckSources", objectMapper.valueToTree(config.allowedAlarmAckSources()));
+        out.put("historianDefaultProvider", config.historianDefaultProvider());
+        out.put("historianMaxRows", config.historianMaxRows());
+        return out;
     }
 
     private ObjectNode simpleError(String message) {

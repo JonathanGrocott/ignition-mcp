@@ -14,6 +14,7 @@ dependencies {
 
     implementation(project(":common"))
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.1")
+    modlImplementation("com.fasterxml.jackson.core:jackson-databind:2.18.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.4")
     testImplementation("org.mockito:mockito-core:5.15.2")

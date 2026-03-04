@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 public class McpSessionManager {
 
@@ -50,6 +51,21 @@ public class McpSessionManager {
             out.add(value);
         }
         return out;
+    }
+
+    public int activeSessionCount() {
+        return sessions.size();
+    }
+
+    public int queuedEventCount() {
+        return sessions.values().stream()
+            .mapToInt(state -> state.events().size())
+            .sum();
+    }
+
+    public Map<String, Long> activeSessionsByTransport() {
+        return sessions.values().stream()
+            .collect(Collectors.groupingBy(SessionState::transportMode, Collectors.counting()));
     }
 
     public record SessionState(
