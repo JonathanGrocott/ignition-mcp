@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.jg.ignition.mcp.common.JsonRpcErrorPayload;
 import com.jg.ignition.mcp.common.McpConstants;
 import com.jg.ignition.mcp.common.ToolDefinition;
 import com.jg.ignition.mcp.common.ToolExecutionResult;
@@ -41,7 +40,9 @@ public class McpDispatcher {
                 NullNode.instance,
                 JSONRPC_RATE_LIMIT,
                 "Rate limit exceeded for token",
-                new JsonRpcErrorPayload(JSONRPC_RATE_LIMIT, "Try again later", null)
+                objectMapper.createObjectNode()
+                    .put("code", "RATE_LIMITED")
+                    .put("message", "Try again later")
             );
         }
 
@@ -137,7 +138,7 @@ public class McpDispatcher {
 
         ObjectNode serverInfo = result.putObject("serverInfo");
         serverInfo.put("name", "ignition-mcp");
-        serverInfo.put("version", "0.1.0-SNAPSHOT");
+        serverInfo.put("version", "0.2.0-SNAPSHOT");
         return result;
     }
 
@@ -185,13 +186,34 @@ public class McpDispatcher {
                 JSONRPC_PERMISSION_DENIED,
                 permission.message(),
                 objectMapper.createObjectNode()
+                    .put("code", "MISSING_PERMISSION")
                     .put("statusCode", permission.statusCode())
                     .put("permission", definition.permission().name())
             );
         }
+        if (!context.safetyPolicy().isToolAllowed(
+            context.authContext().tokenName(),
+            definition.name(),
+            definition.mutating()
+        )) {
+            throw new RpcException(
+                JSONRPC_PERMISSION_DENIED,
+                "Tool blocked by MCP module authorization policy",
+                objectMapper.createObjectNode()
+                    .put("code", "TOOL_NOT_AUTHORIZED")
+                    .put("tool", definition.name())
+                    .put("mutating", definition.mutating())
+            );
+        }
 
         if (definition.mutating() && !context.safetyPolicy().allowWrite(context.authContext().tokenName())) {
-            throw new RpcException(JSONRPC_RATE_LIMIT, "Write rate limit exceeded for token", null);
+            throw new RpcException(
+                JSONRPC_RATE_LIMIT,
+                "Write rate limit exceeded for token",
+                objectMapper.createObjectNode()
+                    .put("code", "WRITE_RATE_LIMITED")
+                    .put("tool", definition.name())
+            );
         }
 
         JsonNode arguments = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();

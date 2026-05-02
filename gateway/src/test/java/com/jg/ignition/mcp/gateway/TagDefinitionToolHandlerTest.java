@@ -21,11 +21,14 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TagDefinitionToolHandlerTest {
@@ -152,5 +155,91 @@ class TagDefinitionToolHandlerTest {
         ToolExecutionResult result = handler.execute(args, context);
         assertFalse(result.isError(), result.text());
         assertTrue(result.structuredContent().path("updated").asBoolean());
+    }
+
+    @Test
+    void writesTagDefinitionBatchDryRunWithChildren() {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        GatewayTagManager tagManager = mock(GatewayTagManager.class);
+        TagProvider provider = mock(TagProvider.class);
+        when(gatewayContext.getTagManager()).thenReturn(tagManager);
+        when(tagManager.getTagProvider("default")).thenReturn(provider);
+
+        ToolCallContext context = context(gatewayContext, McpServerConfigResource.DEFAULT);
+        TagDefinitionToolHandler handler = new TagDefinitionToolHandler("ignition.tags.definition.write");
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("commit", false);
+        ObjectNode definition = args.putArray("definitions").addObject();
+        definition.put("operation", "create");
+        definition.put("path", "[default]MCP/Types/MyType");
+        definition.put("tagObjectType", "UdtType");
+        ObjectNode child = definition.putArray("children").addObject();
+        child.put("name", "Value");
+        child.put("tagObjectType", "AtomicTag");
+        child.putObject("properties").put("enabled", true);
+
+        ToolExecutionResult result = handler.execute(args, context);
+        assertFalse(result.isError(), result.text());
+        assertEquals(1, result.structuredContent().path("count").asInt());
+        verify(provider, never()).saveTagConfigsAsync(any(), any());
+    }
+
+    @Test
+    void deletesTagDefinitionWhenCommitEnabled() {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        GatewayTagManager tagManager = mock(GatewayTagManager.class);
+        TagProvider provider = mock(TagProvider.class);
+        when(gatewayContext.getTagManager()).thenReturn(tagManager);
+        when(tagManager.getTagProvider("default")).thenReturn(provider);
+        when(provider.removeTagConfigsAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(List.of(QualityCode.Good)));
+
+        ToolCallContext context = context(gatewayContext, committedConfig());
+        TagDefinitionToolHandler handler = new TagDefinitionToolHandler("ignition.tags.definition.write");
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("operation", "delete");
+        args.put("path", "[default]MCP/OldTag");
+        args.put("commit", true);
+
+        ToolExecutionResult result = handler.execute(args, context);
+        assertFalse(result.isError(), result.text());
+        assertTrue(result.structuredContent().path("deleted").asBoolean());
+    }
+
+    private ToolCallContext context(GatewayContext gatewayContext, McpServerConfigResource config) {
+        return new ToolCallContext(
+            gatewayContext,
+            mock(RequestContext.class),
+            new McpAuthService.AuthContext("tok", "fp", null),
+            new SafetyPolicyEngine(() -> config),
+            new McpAuditLogger(),
+            config,
+            mapper
+        );
+    }
+
+    private static McpServerConfigResource committedConfig() {
+        return new McpServerConfigResource(
+            true,
+            "ignition-mcp",
+            List.of(),
+            List.of(),
+            true,
+            true,
+            100,
+            300,
+            60,
+            false,
+            50,
+            List.of("*"),
+            List.of("[default]MCP/*"),
+            List.of("*"),
+            List.of("*"),
+            "",
+            5000,
+            1000
+        );
     }
 }

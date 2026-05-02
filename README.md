@@ -15,9 +15,20 @@ Implemented V1 surface:
   - `ignition.tags.definition.read`
   - `ignition.tags.definition.write`
   - `ignition.projects.list`
+  - `ignition.projects.resource.list`
+  - `ignition.projects.resource.read`
+  - `ignition.projects.resource.export`
+  - `ignition.scripts.project.list`
+  - `ignition.scripts.project.read`
+  - `ignition.scripts.project.write`
+  - `ignition.scripts.project.delete`
+  - `ignition.scripts.project.import`
   - `ignition.namedqueries.list`
   - `ignition.namedqueries.read`
   - `ignition.namedqueries.execute`
+  - `ignition.namedqueries.write`
+  - `ignition.namedqueries.delete`
+  - `ignition.namedqueries.import`
   - `ignition.historian.query`
   - `ignition.alarms.list`
   - `ignition.alarms.acknowledge`
@@ -258,6 +269,115 @@ Execute one named query (dry-run default):
 }
 ```
 
+Create/edit a named query definition (dry-run by default, `commit=true` to push):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.namedqueries.write",
+    "arguments": {
+      "project": "samplequickstart",
+      "path": "Reports/New Audit Query",
+      "type": "Query",
+      "database": "Sample_SQLite_Database",
+      "query": "SELECT 1",
+      "parameters": []
+    }
+  }
+}
+```
+
+List project resources:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.projects.resource.list",
+    "arguments": {
+      "project": "samplequickstart",
+      "moduleId": "ignition",
+      "includeData": false
+    }
+  }
+}
+```
+
+Export an allowlisted project resource bundle:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 121,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.projects.resource.export",
+    "arguments": {
+      "project": "samplequickstart",
+      "moduleId": "ignition",
+      "pathPrefix": "MCP",
+      "maxResources": 250
+    }
+  }
+}
+```
+
+Dry-run import project scripts or named queries from a reviewed export bundle:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 122,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.scripts.project.import",
+    "arguments": {
+      "targetProject": "samplequickstart",
+      "bundle": {
+        "resources": [
+          {
+            "moduleId": "ignition",
+            "resourceType": "script-app-library",
+            "path": "MCP/Shared",
+            "applicationScope": 7,
+            "version": 1,
+            "data": {
+              "resource.json": {
+                "encoding": "utf-8",
+                "value": "{\"scripts\":{\"MCP/Shared\":\"print 'hello'\"}}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Create/edit a project startup script:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.scripts.project.write",
+    "arguments": {
+      "project": "samplequickstart",
+      "scriptType": "startup",
+      "code": "print 'startup from MCP'"
+    }
+  }
+}
+```
+
 Create/edit tag definition (requires write permission and `commit=true`):
 
 ```json
@@ -275,6 +395,35 @@ Create/edit tag definition (requires write permission and `commit=true`):
         "enabled": true,
         "documentation": "Created by MCP"
       },
+      "commit": true
+    }
+  }
+}
+```
+
+Create a UDT type with a child member:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 14,
+  "method": "tools/call",
+  "params": {
+    "name": "ignition.tags.definition.write",
+    "arguments": {
+      "operation": "create",
+      "path": "[default]_types_/MCP/Pump",
+      "tagObjectType": "UdtType",
+      "children": [
+        {
+          "name": "Speed",
+          "tagObjectType": "AtomicTag",
+          "properties": {
+            "enabled": true,
+            "documentation": "UDT member created by MCP"
+          }
+        }
+      ],
       "commit": true
     }
   }
@@ -300,9 +449,35 @@ Single profile fields are implemented in `McpServerConfigResource`:
 - `allowedTagWritePatterns`
 - `allowedAlarmAckSources`
 - `allowedNamedQueryExecutePatterns`
+- `allowedProjectResourceReadPatterns`
+- `allowedProjectScriptWritePatterns`
+- `allowedNamedQueryWritePatterns`
+- `allowedReadToolPatterns`
+- `allowedWriteToolPatterns`
+- `authorizationProfiles`
 - `historianDefaultProvider`
 - `historianMaxRows`
 - `namedQueryMaxRows`
+
+`authorizationProfiles` adds reusable per-token grants on top of the global allowlists. A profile matches API token names with `tokenPatterns`; matching profiles can grant tool access and safe-core target allowlists without opening those targets globally:
+
+```json
+[
+  {
+    "name": "ops-mcp-writer",
+    "tokenPatterns": ["ops-*"],
+    "allowedReadToolPatterns": ["ignition.tags.*", "ignition.projects.*"],
+    "allowedWriteToolPatterns": ["ignition.tags.write", "ignition.tags.definition.write"],
+    "allowedTagReadPatterns": ["[default]Ops/*"],
+    "allowedTagWritePatterns": ["[default]Ops/MCP/*", "[default]_types_/Ops/MCP/*"],
+    "allowedAlarmAckSources": ["prov:ops/*"],
+    "allowedNamedQueryExecutePatterns": ["OpsProject/Reports/*"],
+    "allowedProjectResourceReadPatterns": ["OpsProject/ignition/*/*"],
+    "allowedProjectScriptWritePatterns": ["OpsProject/library/MCP/*"],
+    "allowedNamedQueryWritePatterns": ["OpsProject/MCP/*"]
+  }
+]
+```
 
 ## Notes
 
@@ -322,9 +497,12 @@ Single profile fields are implemented in `McpServerConfigResource`:
 Use the provided scripts to run MCP smoke tests:
 
 ```bash
+./scripts/build_local_module.sh
 ./scripts/test_mcp_local.sh
 ./scripts/test_mcp_extended.sh
 ```
+
+For a full local gateway checklist, see [Local Gateway Testing](docs/LOCAL_GATEWAY_TESTING.md).
 
 Token source order in the script:
 

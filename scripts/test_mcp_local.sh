@@ -19,6 +19,9 @@ fi
 MOUNT_ALIAS="${IGNITION_MCP_ALIAS:-ignition-mcp}"
 BASE_URL="${MCP_BASE_URL:-$HOST_VALUE/data/$MOUNT_ALIAS}"
 TOKEN_VALUE="${IGNITION_API_TOKEN:-${X_IGNITION_API_TOKEN:-${API_TOKEN:-${TOKEN:-}}}}"
+TEST_DEFINITION_READ_PATH="${MCP_TEST_DEFINITION_READ_PATH:-[default]MCP}"
+TEST_DEFINITION_WRITE_PATH="${MCP_TEST_DEFINITION_WRITE_PATH:-[default]MCP/NewFromMcp}"
+REQUIRE_TAG_WRITES="${MCP_REQUIRE_TAG_WRITES:-true}"
 
 if [[ -z "$TOKEN_VALUE" ]]; then
   echo "ERROR: Missing API token. Set TOKEN (or IGNITION_API_TOKEN/API_TOKEN) in $ENV_FILE" >&2
@@ -143,23 +146,36 @@ request "POST" "/mcp" '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}
 assert_status "200" "tools/list request"
 assert_json_true '.result.tools | map(.name) | index("ignition.tags.definition.read") != null' "tools/list contains ignition.tags.definition.read"
 assert_json_true '.result.tools | map(.name) | index("ignition.tags.definition.write") != null' "tools/list contains ignition.tags.definition.write"
+assert_json_true '.result.tools | map(.name) | index("ignition.projects.resource.list") != null' "tools/list contains ignition.projects.resource.list"
+assert_json_true '.result.tools | map(.name) | index("ignition.projects.resource.export") != null' "tools/list contains ignition.projects.resource.export"
+assert_json_true '.result.tools | map(.name) | index("ignition.scripts.project.write") != null' "tools/list contains ignition.scripts.project.write"
+assert_json_true '.result.tools | map(.name) | index("ignition.namedqueries.write") != null' "tools/list contains ignition.namedqueries.write"
+assert_json_true '.result.tools | map(.name) | index("ignition.scripts.project.import") != null' "tools/list contains ignition.scripts.project.import"
+assert_json_true '.result.tools | map(.name) | index("ignition.namedqueries.import") != null' "tools/list contains ignition.namedqueries.import"
 
 # 3) definition read
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ignition.tags.definition.read","arguments":{"paths":["[default]MCP"],"recursive":true}}}' "$SESSION_ID"
+DEFINITION_READ_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_READ_PATH" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ignition.tags.definition.read","arguments":{"paths":[$path],"recursive":true}}}')"
+request "POST" "/mcp" "$DEFINITION_READ_PAYLOAD" "$SESSION_ID"
 assert_status "200" "tags.definition.read request"
 assert_json_true '.result.isError == false' "tags.definition.read returns success"
 
-# 4) definition write dry-run
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":"[default]MCP/NewFromMcp","tagObjectType":"AtomicTag","properties":{"documentation":"created via mcp smoke test"}}}}' "$SESSION_ID"
-assert_status "200" "tags.definition.write dry-run request"
-assert_json_true '.result.isError == false' "tags.definition.write dry-run returns success"
-assert_json_true '.result.structuredContent.dryRun == true' "tags.definition.write dry-run flagged"
+if [[ "$REQUIRE_TAG_WRITES" == "true" ]]; then
+  # 4) definition write dry-run
+  DEFINITION_WRITE_DRY_RUN_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_WRITE_PATH" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":$path,"tagObjectType":"AtomicTag","properties":{"documentation":"created via mcp smoke test"}}}}')"
+  request "POST" "/mcp" "$DEFINITION_WRITE_DRY_RUN_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write dry-run request"
+  assert_json_true '.result.isError == false' "tags.definition.write dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "tags.definition.write dry-run flagged"
 
-# 5) definition write commit=true
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":"[default]MCP/NewFromMcp","tagObjectType":"AtomicTag","properties":{"documentation":"created via mcp smoke test"},"commit":true}}}' "$SESSION_ID"
-assert_status "200" "tags.definition.write commit request"
-assert_json_true '.result.isError == false' "tags.definition.write commit returns success"
-assert_json_true '.result.structuredContent.updated == true' "tags.definition.write commit updated"
+  # 5) definition write commit=true
+  DEFINITION_WRITE_COMMIT_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_WRITE_PATH" '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":$path,"tagObjectType":"AtomicTag","properties":{"documentation":"created via mcp smoke test"},"commit":true}}}')"
+  request "POST" "/mcp" "$DEFINITION_WRITE_COMMIT_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write commit request"
+  assert_json_true '.result.isError == false' "tags.definition.write commit returns success"
+  assert_json_true '.result.structuredContent.updated == true' "tags.definition.write commit updated"
+else
+  pass "tag definition write tests skipped (MCP_REQUIRE_TAG_WRITES=false)"
+fi
 
 # 6) cleanup session
 request "DELETE" "/mcp" '' "$SESSION_ID"

@@ -87,8 +87,11 @@ public class TagDefinitionToolHandler implements ToolHandler {
             if (rawPath.isBlank()) {
                 return ToolExecutionResult.error("Path entries cannot be empty");
             }
-            if (!context.safetyPolicy().isTagReadAllowed(rawPath)) {
-                return ToolExecutionResult.error("Definition read path blocked by allowlist: " + rawPath);
+            if (!context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), rawPath)) {
+                return ToolExecutionResult.error(
+                    "Definition read path blocked by allowlist: " + rawPath,
+                    ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Definition read path blocked by allowlist")
+                );
             }
             TagPath path = parseTagPath(rawPath, providerArg);
             if (path == null || StringUtils.isBlank(path.getSource())) {
@@ -120,7 +123,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
             }
 
             for (TagConfigurationModel config : configs) {
-                definitions.add(serializeConfig(context, config));
+                definitions.add(serializeConfig(context, config, null));
                 matched++;
             }
         }
@@ -135,13 +138,55 @@ public class TagDefinitionToolHandler implements ToolHandler {
             return ToolExecutionResult.error("Tag definition write requires an arguments object");
         }
 
+        if (arguments.has("definitions") && arguments.get("definitions").isArray()) {
+            ArrayNode definitions = (ArrayNode) arguments.get("definitions");
+            if (definitions.isEmpty()) {
+                return ToolExecutionResult.error("definitions cannot be empty");
+            }
+            if (definitions.size() > context.safetyPolicy().maxBatchWriteSize()) {
+                return ToolExecutionResult.error(
+                    "Definition batch exceeds maxBatchWriteSize=" + context.safetyPolicy().maxBatchWriteSize()
+                );
+            }
+            ObjectNode batch = context.objectMapper().createObjectNode();
+            ArrayNode results = batch.putArray("results");
+            boolean anyError = false;
+            for (JsonNode definitionNode : definitions) {
+                ObjectNode single = definitionNode.deepCopy();
+                if (!single.has("commit") && arguments.has("commit")) {
+                    single.set("commit", arguments.get("commit"));
+                }
+                if (!single.has("provider") && arguments.has("provider")) {
+                    single.set("provider", arguments.get("provider"));
+                }
+                if (!single.has("operation") && arguments.has("operation")) {
+                    single.set("operation", arguments.get("operation"));
+                }
+                ToolExecutionResult result = writeDefinition(single, context);
+                anyError |= result.isError();
+                ObjectNode row = results.addObject();
+                row.put("isError", result.isError());
+                row.put("text", result.text());
+                if (result.structuredContent() != null) {
+                    row.set("structuredContent", result.structuredContent());
+                }
+            }
+            batch.put("count", results.size());
+            return anyError
+                ? ToolExecutionResult.error("One or more tag definition writes failed", batch)
+                : ToolExecutionResult.ok("Tag definition batch write completed", batch);
+        }
+
         String pathText = arguments.path("path").asText("").trim();
         if (pathText.isBlank()) {
             return ToolExecutionResult.error("Tag definition write requires path");
         }
-        if (!context.safetyPolicy().isTagWriteAllowed(pathText)) {
+        if (!context.safetyPolicy().isTagWriteAllowed(context.authContext().tokenName(), pathText)) {
             context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, false, false, pathText);
-            return ToolExecutionResult.error("Definition write path blocked by allowlist: " + pathText);
+            return ToolExecutionResult.error(
+                "Definition write path blocked by allowlist: " + pathText,
+                ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Definition write path blocked by allowlist")
+            );
         }
 
         String providerArg = arguments.path("provider").asText("").trim();
@@ -153,8 +198,9 @@ public class TagDefinitionToolHandler implements ToolHandler {
         String operation = arguments.path("operation").asText("upsert").trim().toLowerCase();
         boolean isCreate = "create".equals(operation);
         boolean isEdit = "edit".equals(operation);
-        if (!isCreate && !isEdit && !"upsert".equals(operation)) {
-            return ToolExecutionResult.error("operation must be one of create, edit, upsert");
+        boolean isDelete = "delete".equals(operation);
+        if (!isCreate && !isEdit && !isDelete && !"upsert".equals(operation)) {
+            return ToolExecutionResult.error("operation must be one of create, edit, upsert, delete");
         }
 
         TagProvider provider = context.gatewayContext().getTagManager().getTagProvider(path.getSource());
@@ -163,6 +209,38 @@ public class TagDefinitionToolHandler implements ToolHandler {
         }
 
         CollisionPolicy collisionPolicy = resolveCollisionPolicy(arguments.path("collisionPolicy").asText(""));
+        boolean dryRun = context.safetyPolicy().isDryRun(arguments);
+        if (isDelete) {
+            if (dryRun) {
+                ObjectNode result = context.objectMapper().createObjectNode();
+                result.put("dryRun", true);
+                result.put("operation", operation);
+                result.put("path", path.toStringFull());
+                result.put("provider", path.getSource());
+                return ToolExecutionResult.ok("Tag definition delete dry-run plan generated", result);
+            }
+            List<QualityCode> deleteResults;
+            try {
+                deleteResults = provider.removeTagConfigsAsync(List.of(path))
+                    .get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+            catch (Exception e) {
+                context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, true, false, pathText);
+                return ToolExecutionResult.error("Definition delete failed: " + e.getMessage());
+            }
+            boolean allGood = deleteResults.stream().filter(Objects::nonNull).allMatch(QualityCode::isGood);
+            context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, true, allGood, pathText);
+            if (!allGood) {
+                return ToolExecutionResult.error("Definition delete returned non-good quality result");
+            }
+            ObjectNode out = context.objectMapper().createObjectNode();
+            out.put("deleted", true);
+            out.put("operation", operation);
+            out.put("path", path.toStringFull());
+            out.put("provider", path.getSource());
+            return ToolExecutionResult.ok("Tag definition delete completed", out);
+        }
+
         TagConfiguration config = isCreate
             ? BasicTagConfiguration.createNew(path)
             : BasicTagConfiguration.createEdit(path);
@@ -176,12 +254,12 @@ public class TagDefinitionToolHandler implements ToolHandler {
             applyProperties(config, arguments.path("properties"));
             applyBindings(config, arguments.path("bindings"));
             applyRemovals(config, arguments.path("removeProperties"));
+            applyChildren(config, arguments.path("children"), providerArg);
         }
         catch (IllegalArgumentException e) {
             return ToolExecutionResult.error(e.getMessage());
         }
 
-        boolean dryRun = context.safetyPolicy().isDryRun(arguments);
         if (dryRun) {
             ObjectNode result = context.objectMapper().createObjectNode();
             result.put("dryRun", true);
@@ -195,6 +273,9 @@ public class TagDefinitionToolHandler implements ToolHandler {
             result.set("bindings", arguments.path("bindings").isObject()
                 ? arguments.path("bindings").deepCopy()
                 : context.objectMapper().createObjectNode());
+            result.set("children", arguments.path("children").isArray()
+                ? arguments.path("children").deepCopy()
+                : context.objectMapper().createArrayNode());
             return ToolExecutionResult.ok("Tag definition dry-run plan generated", result);
         }
 
@@ -302,10 +383,47 @@ public class TagDefinitionToolHandler implements ToolHandler {
         }
     }
 
-    private static ObjectNode serializeConfig(ToolCallContext context, TagConfigurationModel config) {
+    private static void applyChildren(TagConfiguration parent, JsonNode children, String providerArg) {
+        if (children == null || !children.isArray()) {
+            return;
+        }
+        for (JsonNode childNode : children) {
+            if (childNode == null || !childNode.isObject()) {
+                throw new IllegalArgumentException("Child definitions must be objects");
+            }
+            String rawPath = childNode.path("path").asText("").trim();
+            String name = childNode.path("name").asText("").trim();
+            TagPath childPath;
+            if (StringUtils.isNotBlank(rawPath)) {
+                childPath = parseTagPath(rawPath, providerArg);
+            }
+            else if (StringUtils.isNotBlank(name)) {
+                childPath = parent.getPath().getChildPath(name);
+            }
+            else {
+                throw new IllegalArgumentException("Child definition requires path or name");
+            }
+            if (childPath == null) {
+                throw new IllegalArgumentException("Invalid child tag path: " + rawPath);
+            }
+            TagConfiguration child = BasicTagConfiguration.createNew(childPath);
+            TagObjectType childType = resolveTagType(childNode.path("tagObjectType").asText(""));
+            if (childType != null) {
+                child.setType(childType);
+            }
+            applyProperties(child, childNode.path("properties"));
+            applyBindings(child, childNode.path("bindings"));
+            applyRemovals(child, childNode.path("removeProperties"));
+            applyChildren(child, childNode.path("children"), providerArg);
+            parent.addChild(child);
+        }
+    }
+
+    private static ObjectNode serializeConfig(ToolCallContext context, TagConfigurationModel config, TagPath parentPath) {
         ObjectNode node = context.objectMapper().createObjectNode();
+        TagPath normalizedPath = normalizedConfigPath(config, parentPath);
         node.put("name", StringUtils.defaultString(config.getName()));
-        node.put("path", config.getPath() == null ? "" : config.getPath().toStringFull());
+        node.put("path", normalizedPath == null ? "" : normalizedPath.toStringFull());
         node.put("type", config.getType() == null ? "" : config.getType().name());
         node.put("editable", config.isEditable());
         node.put("inherited", config.isInherited());
@@ -316,9 +434,23 @@ public class TagDefinitionToolHandler implements ToolHandler {
 
         ArrayNode children = node.putArray("children");
         for (TagConfigurationModel child : config.getChildren()) {
-            children.add(serializeConfig(context, child));
+            children.add(serializeConfig(context, child, normalizedPath));
         }
         return node;
+    }
+
+    private static TagPath normalizedConfigPath(TagConfigurationModel config, TagPath parentPath) {
+        if (config == null) {
+            return null;
+        }
+        TagPath path = config.getPath();
+        if (path != null && StringUtils.isNotBlank(path.getSource())) {
+            return path;
+        }
+        if (parentPath != null && StringUtils.isNotBlank(config.getName())) {
+            return parentPath.getChildPath(config.getName());
+        }
+        return path;
     }
 
     private static ObjectNode serializePropertySet(ToolCallContext context, TagConfiguration configuration) {
@@ -463,6 +595,8 @@ public class TagDefinitionToolHandler implements ToolHandler {
             properties.putObject("collisionPolicy").put("type", "string");
             properties.putObject("properties").put("type", "object");
             properties.putObject("bindings").put("type", "object");
+            properties.putObject("children").put("type", "array");
+            properties.putObject("definitions").put("type", "array");
             ObjectNode removeProperties = properties.putObject("removeProperties");
             removeProperties.put("type", "array");
             removeProperties.putObject("items").put("type", "string");

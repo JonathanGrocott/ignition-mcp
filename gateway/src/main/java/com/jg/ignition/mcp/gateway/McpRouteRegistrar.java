@@ -543,6 +543,12 @@ public class McpRouteRegistrar {
         out.set("allowedTagWritePatterns", objectMapper.valueToTree(config.allowedTagWritePatterns()));
         out.set("allowedAlarmAckSources", objectMapper.valueToTree(config.allowedAlarmAckSources()));
         out.set("allowedNamedQueryExecutePatterns", objectMapper.valueToTree(config.allowedNamedQueryExecutePatterns()));
+        out.set("allowedProjectResourceReadPatterns", objectMapper.valueToTree(config.allowedProjectResourceReadPatterns()));
+        out.set("allowedProjectScriptWritePatterns", objectMapper.valueToTree(config.allowedProjectScriptWritePatterns()));
+        out.set("allowedNamedQueryWritePatterns", objectMapper.valueToTree(config.allowedNamedQueryWritePatterns()));
+        out.set("allowedReadToolPatterns", objectMapper.valueToTree(config.allowedReadToolPatterns()));
+        out.set("allowedWriteToolPatterns", objectMapper.valueToTree(config.allowedWriteToolPatterns()));
+        out.set("authorizationProfiles", objectMapper.valueToTree(config.authorizationProfiles()));
         out.put("historianDefaultProvider", config.historianDefaultProvider());
         out.put("historianMaxRows", config.historianMaxRows());
         out.put("namedQueryMaxRows", config.namedQueryMaxRows());

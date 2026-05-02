@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -36,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -58,6 +60,10 @@ class McpRouteRegistrarIntegrationTest {
         configRef = new AtomicReference<>(defaultConfig());
         configService = mock(McpConfigService.class);
         when(configService.getConfig()).thenAnswer(invocation -> configRef.get());
+        when(configService.upsert(any(McpServerConfigResource.class), anyString())).thenAnswer(invocation -> {
+            configRef.set(invocation.getArgument(0));
+            return CompletableFuture.completedFuture(null);
+        });
 
         sessionManager = new McpSessionManager();
         SafetyPolicyEngine safetyPolicy = new SafetyPolicyEngine(() -> configRef.get());
@@ -281,6 +287,72 @@ class McpRouteRegistrarIntegrationTest {
         assertTrue(body.path("observability").path("totalToolCalls").asInt() >= 1);
         assertTrue(body.path("observability").path("topTools").isArray());
         assertTrue(body.path("observability").path("recentEvents").isArray());
+        assertTrue(body.path("config").path("allowedProjectResourceReadPatterns").isArray());
+        assertTrue(body.path("config").path("allowedProjectScriptWritePatterns").isArray());
+        assertTrue(body.path("config").path("allowedNamedQueryWritePatterns").isArray());
+        assertTrue(body.path("config").path("allowedReadToolPatterns").isArray());
+        assertTrue(body.path("config").path("allowedWriteToolPatterns").isArray());
+        assertTrue(body.path("config").path("authorizationProfiles").isArray());
+    }
+
+    @Test
+    void adminConfigPostRoundTripsAuthorizationProfiles() throws Exception {
+        InvocationResult result = invoke(
+            "/admin/config",
+            HttpMethod.POST,
+            """
+                {
+                  "config": {
+                    "enabled": true,
+                    "mountAlias": "ignition-mcp",
+                    "streamableEnabled": true,
+                    "sseFallbackEnabled": true,
+                    "maxConcurrentSessions": 200,
+                    "maxRequestsPerMinutePerToken": 300,
+                    "maxWriteOpsPerMinutePerToken": 60,
+                    "defaultDryRun": true,
+                    "maxBatchWriteSize": 50,
+                    "allowedOrigins": [],
+                    "allowedHosts": [],
+                    "allowedTagReadPatterns": ["[default]Public/*"],
+                    "allowedTagWritePatterns": ["[default]MCP/*"],
+                    "allowedAlarmAckSources": ["prov:public/*"],
+                    "allowedNamedQueryExecutePatterns": ["PublicProject/*"],
+                    "allowedProjectResourceReadPatterns": ["PublicProject/ignition/*/*"],
+                    "allowedProjectScriptWritePatterns": ["PublicProject/library/*"],
+                    "allowedNamedQueryWritePatterns": ["PublicProject/MCP/*"],
+                    "allowedReadToolPatterns": [],
+                    "allowedWriteToolPatterns": [],
+                    "authorizationProfiles": [
+                      {
+                        "name": "ops",
+                        "tokenPatterns": ["ops-*"],
+                        "allowedReadToolPatterns": ["ignition.projects.*"],
+                        "allowedWriteToolPatterns": ["ignition.tags.write"],
+                        "allowedTagReadPatterns": ["[default]Ops/*"],
+                        "allowedTagWritePatterns": ["[default]Ops/MCP/*"],
+                        "allowedAlarmAckSources": ["prov:ops/*"],
+                        "allowedNamedQueryExecutePatterns": ["OpsProject/Reports/*"],
+                        "allowedProjectResourceReadPatterns": ["OpsProject/ignition/*/*"],
+                        "allowedProjectScriptWritePatterns": ["OpsProject/library/MCP/*"],
+                        "allowedNamedQueryWritePatterns": ["OpsProject/MCP/*"]
+                      }
+                    ],
+                    "historianDefaultProvider": "",
+                    "historianMaxRows": 5000,
+                    "namedQueryMaxRows": 1000
+                  }
+                }
+                """,
+            Map.of(),
+            Map.of()
+        );
+
+        ObjectNode body = asObjectNode(result.body());
+        assertEquals(200, result.statusCode());
+        assertTrue(body.path("updated").asBoolean());
+        assertEquals("ops", body.path("config").path("authorizationProfiles").path(0).path("name").asText());
+        assertTrue(configRef.get().authorizationProfiles().get(0).allowedTagReadPatterns().contains("[default]Ops/*"));
     }
 
     private InvocationResult invoke(

@@ -78,7 +78,7 @@ public class HistorianToolHandler implements ToolHandler {
             if (path.isBlank()) {
                 return ToolExecutionResult.error("Historian path cannot be empty");
             }
-            if (!context.safetyPolicy().isTagReadAllowed(path)) {
+            if (!context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), path)) {
                 return ToolExecutionResult.error("Historian path blocked by read allowlist: " + path);
             }
             Path resolvedPath = resolveHistoryPath(path, provider);

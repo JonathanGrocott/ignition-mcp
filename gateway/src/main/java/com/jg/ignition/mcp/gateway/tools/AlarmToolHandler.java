@@ -110,7 +110,7 @@ public class AlarmToolHandler implements ToolHandler {
         if (source.isBlank()) {
             return ToolExecutionResult.error("Alarm acknowledge requires 'source'");
         }
-        if (!context.safetyPolicy().isAlarmAckAllowed(source)) {
+        if (!context.safetyPolicy().isAlarmAckAllowed(context.authContext().tokenName(), source)) {
             context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, false, false, source);
             return ToolExecutionResult.error("Alarm source blocked by allowlist: " + source);
         }
