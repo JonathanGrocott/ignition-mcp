@@ -580,14 +580,6 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   className: "mcp-admin-btn",
                   onClick: () => copyText("MCP endpoint", mcpEndpoint)
                 }, "Copy Endpoint"),
-                e("button", {
-                  className: "mcp-admin-btn",
-                  onClick: () => copyText("Codex command", `codex mcp add ignition-mcp --url ${mcpEndpoint} --bearer-token-env-var IGNITION_MCP_TOKEN`)
-                }, "Copy Codex"),
-                e("button", {
-                  className: "mcp-admin-btn",
-                  onClick: () => copyText("Claude command", `claude mcp add --transport http --scope user --header "X-Ignition-API-Token: \${IGNITION_MCP_TOKEN}" ignition-mcp ${mcpEndpoint}`)
-                }, "Copy Claude"),
                 e("label", { className: "mcp-admin-toggle", title: "Refreshes runtime and observability data every 10 seconds." },
                   e("input", {
                     type: "checkbox",
