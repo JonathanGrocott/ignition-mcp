@@ -19,6 +19,16 @@ fi
 MOUNT_ALIAS="${IGNITION_MCP_ALIAS:-ignition-mcp}"
 BASE_URL="${MCP_BASE_URL:-$HOST_VALUE/data/$MOUNT_ALIAS}"
 TOKEN_VALUE="${IGNITION_API_TOKEN:-${X_IGNITION_API_TOKEN:-${API_TOKEN:-${TOKEN:-}}}}"
+TEST_TAG_READ_PATH_1="${MCP_TEST_TAG_READ_PATH_1:-[Sample_Tags]RampUDT/Ramp0}"
+TEST_TAG_READ_PATH_2="${MCP_TEST_TAG_READ_PATH_2:-[Sample_Tags]RampUDT/Ramp1}"
+TEST_DEFINITION_READ_PATH="${MCP_TEST_DEFINITION_READ_PATH:-[Sample_Tags]}"
+TEST_DEFINITION_WRITE_PATH="${MCP_TEST_DEFINITION_WRITE_PATH:-[default]MCP/IterTestTag}"
+TEST_BLOCKED_WRITE_PATH="${MCP_TEST_BLOCKED_WRITE_PATH:-[Sample_Tags]RampUDT/Ramp0}"
+TEST_UDT_TYPE_PATH="${MCP_TEST_UDT_TYPE_PATH:-[default]_types_/MCP/McpSmokeType}"
+TEST_DELETE_PATH="${MCP_TEST_DELETE_PATH:-[default]MCP/McpSmokeDeleteCandidate}"
+REQUIRE_TAG_WRITES="${MCP_REQUIRE_TAG_WRITES:-true}"
+COMMIT_PROJECT_SCRIPT_TESTS="${MCP_COMMIT_PROJECT_SCRIPT_TESTS:-false}"
+COMMIT_NAMED_QUERY_TESTS="${MCP_COMMIT_NAMED_QUERY_TESTS:-false}"
 
 if [[ -z "$TOKEN_VALUE" ]]; then
   echo "ERROR: Missing API token. Set TOKEN (or IGNITION_API_TOKEN/API_TOKEN) in $ENV_FILE" >&2
@@ -191,9 +201,20 @@ for tool in \
   "ignition.tags.definition.read" \
   "ignition.tags.definition.write" \
   "ignition.projects.list" \
+  "ignition.projects.resource.list" \
+  "ignition.projects.resource.read" \
+  "ignition.projects.resource.export" \
+  "ignition.scripts.project.list" \
+  "ignition.scripts.project.read" \
+  "ignition.scripts.project.write" \
+  "ignition.scripts.project.delete" \
+  "ignition.scripts.project.import" \
   "ignition.namedqueries.list" \
   "ignition.namedqueries.read" \
   "ignition.namedqueries.execute" \
+  "ignition.namedqueries.write" \
+  "ignition.namedqueries.delete" \
+  "ignition.namedqueries.import" \
   "ignition.historian.query" \
   "ignition.alarms.list" \
   "ignition.alarms.acknowledge"; do
@@ -207,41 +228,151 @@ assert_json_true '.result.isError == false' "tags.browse returns success"
 assert_json_true '.result.structuredContent.providers | length > 0' "tags.browse returns providers"
 
 # 5) tags.read on known sample tags
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ignition.tags.read","arguments":{"paths":["[Sample_Tags]RampUDT/Ramp0","[Sample_Tags]RampUDT/Ramp1"]}}}' "$SESSION_ID"
+TAG_READ_PAYLOAD="$(jq -nc --arg p1 "$TEST_TAG_READ_PATH_1" --arg p2 "$TEST_TAG_READ_PATH_2" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ignition.tags.read","arguments":{"paths":[$p1,$p2]}}}')"
+request "POST" "/mcp" "$TAG_READ_PAYLOAD" "$SESSION_ID"
 assert_status "200" "tags.read request"
 assert_json_true '.result.isError == false' "tags.read returns success"
 assert_json_true '.result.structuredContent.values | length == 2' "tags.read returns two values"
 
 # 6) definition.read recursive
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ignition.tags.definition.read","arguments":{"paths":["[Sample_Tags]"],"recursive":true}}}' "$SESSION_ID"
+DEFINITION_READ_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_READ_PATH" '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ignition.tags.definition.read","arguments":{"paths":[$path],"recursive":true}}}')"
+request "POST" "/mcp" "$DEFINITION_READ_PAYLOAD" "$SESSION_ID"
 assert_status "200" "tags.definition.read request"
 assert_json_true '.result.isError == false' "tags.definition.read returns success"
 assert_json_true '.result.structuredContent.count >= 1' "tags.definition.read count populated"
 
-# 7) definition.write dry-run
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":"[default]MCP/IterTestTag","tagObjectType":"AtomicTag","properties":{"documentation":"extended test dry-run"}}}}' "$SESSION_ID"
-assert_status "200" "tags.definition.write dry-run request"
-assert_json_true '.result.isError == false' "tags.definition.write dry-run returns success"
-assert_json_true '.result.structuredContent.dryRun == true' "tags.definition.write dry-run flagged"
+# 7/8) definition.write dry-run and commit true
+if [[ "$REQUIRE_TAG_WRITES" == "true" ]]; then
+  DEFINITION_WRITE_DRY_RUN_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_WRITE_PATH" '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":$path,"tagObjectType":"AtomicTag","properties":{"documentation":"extended test dry-run"}}}}')"
+  request "POST" "/mcp" "$DEFINITION_WRITE_DRY_RUN_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write dry-run request"
+  assert_json_true '.result.isError == false' "tags.definition.write dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "tags.definition.write dry-run flagged"
 
-# 8) definition.write commit true
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":"[default]MCP/IterTestTag","tagObjectType":"AtomicTag","properties":{"documentation":"extended test commit"},"commit":true}}}' "$SESSION_ID"
-assert_status "200" "tags.definition.write commit request"
-assert_json_true '.result.isError == false' "tags.definition.write commit returns success"
-assert_json_true '.result.structuredContent.updated == true' "tags.definition.write commit updated"
+  DEFINITION_WRITE_COMMIT_PAYLOAD="$(jq -nc --arg path "$TEST_DEFINITION_WRITE_PATH" '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"upsert","path":$path,"tagObjectType":"AtomicTag","properties":{"documentation":"extended test commit"},"commit":true}}}')"
+  request "POST" "/mcp" "$DEFINITION_WRITE_COMMIT_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write commit request"
+  assert_json_true '.result.isError == false' "tags.definition.write commit returns success"
+  assert_json_true '.result.structuredContent.updated == true' "tags.definition.write commit updated"
+else
+  pass "tag definition write tests skipped (MCP_REQUIRE_TAG_WRITES=false)"
+fi
 
 # 9) safety: blocked write outside default allowlist
-request "POST" "/mcp" '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"ignition.tags.write","arguments":{"commit":true,"writes":[{"path":"[Sample_Tags]RampUDT/Ramp0","value":12.34}]}}}' "$SESSION_ID"
+BLOCKED_WRITE_PAYLOAD="$(jq -nc --arg path "$TEST_BLOCKED_WRITE_PATH" '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"ignition.tags.write","arguments":{"commit":true,"writes":[{"path":$path,"value":12.34}]}}}')"
+request "POST" "/mcp" "$BLOCKED_WRITE_PAYLOAD" "$SESSION_ID"
 assert_status "200" "tags.write blocked request still returns jsonrpc envelope"
 assert_json_true '.result.isError == true' "tags.write outside allowlist blocked"
+assert_json_true '.result.structuredContent.code != null' "tags.write blocked includes structured error code"
 
-# 10) alarms list
+# 10) UDT definition dry-run and delete dry-run
+if [[ "$REQUIRE_TAG_WRITES" == "true" ]]; then
+  UDT_DRY_RUN_PAYLOAD="$(jq -nc --arg path "$TEST_UDT_TYPE_PATH" '{"jsonrpc":"2.0","id":90,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"create","path":$path,"tagObjectType":"UdtType","children":[{"name":"Value","tagObjectType":"AtomicTag","properties":{"documentation":"MCP smoke UDT member"}}]}}}')"
+  request "POST" "/mcp" "$UDT_DRY_RUN_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write UDT dry-run request"
+  assert_json_true '.result.isError == false' "tags.definition.write UDT dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true and (.result.structuredContent.children | length) == 1' "tags.definition.write UDT dry-run includes child plan"
+
+  DELETE_DRY_RUN_PAYLOAD="$(jq -nc --arg path "$TEST_DELETE_PATH" '{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":"ignition.tags.definition.write","arguments":{"operation":"delete","path":$path}}}')"
+  request "POST" "/mcp" "$DELETE_DRY_RUN_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "tags.definition.write delete dry-run request"
+  assert_json_true '.result.isError == false' "tags.definition.write delete dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true and .result.structuredContent.operation == "delete"' "tags.definition.write delete dry-run flagged"
+else
+  pass "UDT/delete tag definition write tests skipped (MCP_REQUIRE_TAG_WRITES=false)"
+fi
+
+# 11) projects, project resources, and project scripts
+request "POST" "/mcp" '{"jsonrpc":"2.0","id":92,"method":"tools/call","params":{"name":"ignition.projects.list","arguments":{"includeNamedQueryCounts":true}}}' "$SESSION_ID"
+assert_status "200" "projects.list request"
+assert_json_true '.result.isError == false' "projects.list returns success"
+assert_json_true '.result.structuredContent.projects | type == "array"' "projects.list projects array present"
+PROJECTS_BODY="$RESPONSE_BODY"
+MUTABLE_PROJECT="$(echo "$PROJECTS_BODY" | jq -r '.result.structuredContent.projects[]? | select(.mutable == true) | .name' | head -n 1)"
+
+request "POST" "/mcp" '{"jsonrpc":"2.0","id":93,"method":"tools/call","params":{"name":"ignition.projects.resource.list","arguments":{"includeData":false}}}' "$SESSION_ID"
+assert_status "200" "projects.resource.list request"
+assert_json_true '.result.isError == false' "projects.resource.list returns success"
+assert_json_true '.result.structuredContent.resources | type == "array"' "projects.resource.list resources array present"
+RESOURCE_LIST_BODY="$RESPONSE_BODY"
+RESOURCE_PROJECT="$(echo "$RESOURCE_LIST_BODY" | jq -r '.result.structuredContent.resources[0].project // empty')"
+RESOURCE_MODULE="$(echo "$RESOURCE_LIST_BODY" | jq -r '.result.structuredContent.resources[0].moduleId // empty')"
+RESOURCE_TYPE="$(echo "$RESOURCE_LIST_BODY" | jq -r '.result.structuredContent.resources[0].resourceType // empty')"
+RESOURCE_PATH="$(echo "$RESOURCE_LIST_BODY" | jq -r '.result.structuredContent.resources[0].path // empty')"
+if [[ -n "$RESOURCE_PROJECT" && -n "$RESOURCE_MODULE" && -n "$RESOURCE_TYPE" ]]; then
+  RESOURCE_READ_PAYLOAD="$(jq -nc --arg project "$RESOURCE_PROJECT" --arg moduleId "$RESOURCE_MODULE" --arg resourceType "$RESOURCE_TYPE" --arg path "$RESOURCE_PATH" '{"jsonrpc":"2.0","id":94,"method":"tools/call","params":{"name":"ignition.projects.resource.read","arguments":{"project":$project,"moduleId":$moduleId,"resourceType":$resourceType,"path":$path,"includeData":false}}}')"
+  request "POST" "/mcp" "$RESOURCE_READ_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "projects.resource.read request"
+  assert_json_true '.result.isError == false' "projects.resource.read returns success"
+  assert_json_true '.result.structuredContent.resource.moduleId != null' "projects.resource.read includes resource metadata"
+else
+  pass "projects.resource.read skipped (no project resources found)"
+fi
+
+if [[ -n "$RESOURCE_PROJECT" ]]; then
+  RESOURCE_EXPORT_PAYLOAD="$(jq -nc --arg project "$RESOURCE_PROJECT" '{"jsonrpc":"2.0","id":100,"method":"tools/call","params":{"name":"ignition.projects.resource.export","arguments":{"project":$project,"maxResources":10}}}')"
+  request "POST" "/mcp" "$RESOURCE_EXPORT_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "projects.resource.export request"
+  assert_json_true '.result.isError == false' "projects.resource.export returns success"
+  assert_json_true '.result.structuredContent.bundle.format == "ignition-mcp.project-resource-bundle.v1"' "projects.resource.export bundle format"
+else
+  pass "projects.resource.export skipped (no project resources found)"
+fi
+
+request "POST" "/mcp" '{"jsonrpc":"2.0","id":95,"method":"tools/call","params":{"name":"ignition.scripts.project.list","arguments":{"includeCode":false}}}' "$SESSION_ID"
+assert_status "200" "scripts.project.list request"
+assert_json_true '.result.isError == false' "scripts.project.list returns success"
+assert_json_true '.result.structuredContent.scripts | type == "array"' "scripts.project.list scripts array present"
+
+if [[ -n "$MUTABLE_PROJECT" ]]; then
+  SCRIPT_WRITE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":96,"method":"tools/call","params":{"name":"ignition.scripts.project.write","arguments":{"project":$project,"scriptType":"startup","code":"print '\''mcp smoke startup dry run'\''"}}}')"
+  request "POST" "/mcp" "$SCRIPT_WRITE_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "scripts.project.write dry-run request"
+  assert_json_true '.result.isError == false' "scripts.project.write dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "scripts.project.write dry-run flagged"
+
+  SCRIPT_DELETE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":97,"method":"tools/call","params":{"name":"ignition.scripts.project.delete","arguments":{"project":$project,"scriptType":"startup"}}}')"
+  request "POST" "/mcp" "$SCRIPT_DELETE_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "scripts.project.delete dry-run request"
+  assert_json_true '.result.isError == false' "scripts.project.delete dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "scripts.project.delete dry-run flagged"
+
+  SCRIPT_IMPORT_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":101,"method":"tools/call","params":{"name":"ignition.scripts.project.import","arguments":{"targetProject":$project,"bundle":{"resources":[{"moduleId":"ignition","resourceType":"script-app-library","path":"MCP/SmokeImport","applicationScope":7,"version":1,"documentation":"","data":{"resource.json":{"encoding":"utf-8","value":"{\"scripts\":{\"MCP/SmokeImport\":\"print '\''mcp import dry run'\''\"}}"}}}]}}}}')"
+  request "POST" "/mcp" "$SCRIPT_IMPORT_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "scripts.project.import dry-run request"
+  assert_json_true '.result.isError == false' "scripts.project.import dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true and .result.structuredContent.importCount == 1' "scripts.project.import dry-run plan"
+
+  if [[ "$COMMIT_PROJECT_SCRIPT_TESTS" == "true" ]]; then
+    SCRIPT_COMMIT_PATH="MCP/SmokeCommitLibrary"
+    SCRIPT_COMMIT_WRITE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$SCRIPT_COMMIT_PATH" '{"jsonrpc":"2.0","id":103,"method":"tools/call","params":{"name":"ignition.scripts.project.write","arguments":{"project":$project,"scriptType":"library","path":$path,"operation":"upsert","code":"print '\''mcp committed library smoke'\''","commit":true}}}')"
+    request "POST" "/mcp" "$SCRIPT_COMMIT_WRITE_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "scripts.project.write commit request"
+    assert_json_true '.result.isError == false' "scripts.project.write commit returns success"
+
+    SCRIPT_COMMIT_READ_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$SCRIPT_COMMIT_PATH" '{"jsonrpc":"2.0","id":104,"method":"tools/call","params":{"name":"ignition.scripts.project.read","arguments":{"project":$project,"scriptType":"library","path":$path}}}')"
+    request "POST" "/mcp" "$SCRIPT_COMMIT_READ_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "scripts.project.read committed resource request"
+    assert_json_true '.result.isError == false' "scripts.project.read committed resource returns success"
+
+    SCRIPT_COMMIT_DELETE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$SCRIPT_COMMIT_PATH" '{"jsonrpc":"2.0","id":105,"method":"tools/call","params":{"name":"ignition.scripts.project.delete","arguments":{"project":$project,"scriptType":"library","path":$path,"commit":true}}}')"
+    request "POST" "/mcp" "$SCRIPT_COMMIT_DELETE_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "scripts.project.delete commit request"
+    assert_json_true '.result.isError == false' "scripts.project.delete commit returns success"
+  else
+    pass "scripts.project commit create/read/delete skipped (MCP_COMMIT_PROJECT_SCRIPT_TESTS=false)"
+  fi
+else
+  pass "scripts.project write/delete dry-runs skipped (no mutable project found)"
+fi
+
+# 12) alarms list
 request "POST" "/mcp" '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"ignition.alarms.list","arguments":{"state":"all","maxResults":25}}}' "$SESSION_ID"
 assert_status "200" "alarms.list request"
 assert_json_true '.result.isError == false' "alarms.list returns success"
 assert_json_true '.result.structuredContent.alarms | type == "array"' "alarms.list alarms array present"
 
-# 11) namedqueries.list, read, and execute
+# 13) namedqueries.list, read, execute, write dry-run, and delete dry-run
 request "POST" "/mcp" '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"ignition.namedqueries.list","arguments":{}}}' "$SESSION_ID"
 assert_status "200" "namedqueries.list request"
 assert_json_true '.result.isError == false' "namedqueries.list returns success"
@@ -288,7 +419,49 @@ else
   pass "namedqueries read/execute skipped (no named queries found)"
 fi
 
-# 12) historian query (last hour)
+if [[ -n "$MUTABLE_PROJECT" ]]; then
+  NQ_WRITE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":98,"method":"tools/call","params":{"name":"ignition.namedqueries.write","arguments":{"project":$project,"path":"MCP/Smoke Dry Run Query","type":"ScalarQuery","query":"SELECT 1","parameters":[]}}}')"
+  request "POST" "/mcp" "$NQ_WRITE_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "namedqueries.write dry-run request"
+  assert_json_true '.result.isError == false' "namedqueries.write dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "namedqueries.write dry-run flagged"
+
+  NQ_DELETE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"ignition.namedqueries.delete","arguments":{"project":$project,"path":"MCP/Smoke Dry Run Query"}}}')"
+  request "POST" "/mcp" "$NQ_DELETE_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "namedqueries.delete dry-run request"
+  assert_json_true '.result.isError == false' "namedqueries.delete dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true' "namedqueries.delete dry-run flagged"
+
+  NQ_IMPORT_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" '{"jsonrpc":"2.0","id":102,"method":"tools/call","params":{"name":"ignition.namedqueries.import","arguments":{"targetProject":$project,"bundle":{"resources":[{"moduleId":"ignition","resourceType":"named-query","path":"MCP/Smoke Imported Query","applicationScope":7,"version":1,"documentation":"","data":{"resource.json":{"encoding":"utf-8","value":"{}"}}}]}}}}')"
+  request "POST" "/mcp" "$NQ_IMPORT_PAYLOAD" "$SESSION_ID"
+  assert_status "200" "namedqueries.import dry-run request"
+  assert_json_true '.result.isError == false' "namedqueries.import dry-run returns success"
+  assert_json_true '.result.structuredContent.dryRun == true and .result.structuredContent.importCount == 1' "namedqueries.import dry-run plan"
+
+  if [[ "$COMMIT_NAMED_QUERY_TESTS" == "true" ]]; then
+    NQ_COMMIT_PATH="MCP/Smoke Commit Query"
+    NQ_COMMIT_WRITE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$NQ_COMMIT_PATH" '{"jsonrpc":"2.0","id":106,"method":"tools/call","params":{"name":"ignition.namedqueries.write","arguments":{"project":$project,"path":$path,"operation":"upsert","type":"ScalarQuery","query":"SELECT 1","parameters":[],"commit":true}}}')"
+    request "POST" "/mcp" "$NQ_COMMIT_WRITE_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "namedqueries.write commit request"
+    assert_json_true '.result.isError == false' "namedqueries.write commit returns success"
+
+    NQ_COMMIT_READ_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$NQ_COMMIT_PATH" '{"jsonrpc":"2.0","id":107,"method":"tools/call","params":{"name":"ignition.namedqueries.read","arguments":{"project":$project,"path":$path}}}')"
+    request "POST" "/mcp" "$NQ_COMMIT_READ_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "namedqueries.read committed resource request"
+    assert_json_true '.result.isError == false' "namedqueries.read committed resource returns success"
+
+    NQ_COMMIT_DELETE_PAYLOAD="$(jq -nc --arg project "$MUTABLE_PROJECT" --arg path "$NQ_COMMIT_PATH" '{"jsonrpc":"2.0","id":108,"method":"tools/call","params":{"name":"ignition.namedqueries.delete","arguments":{"project":$project,"path":$path,"commit":true}}}')"
+    request "POST" "/mcp" "$NQ_COMMIT_DELETE_PAYLOAD" "$SESSION_ID"
+    assert_status "200" "namedqueries.delete commit request"
+    assert_json_true '.result.isError == false' "namedqueries.delete commit returns success"
+  else
+    pass "namedqueries commit create/read/delete skipped (MCP_COMMIT_NAMED_QUERY_TESTS=false)"
+  fi
+else
+  pass "namedqueries write/delete dry-runs skipped (no mutable project found)"
+fi
+
+# 14) historian query (last hour)
 NOW_SEC="$(date +%s)"
 START_MS="$(( (NOW_SEC - 3600) * 1000 ))"
 END_MS="$(( NOW_SEC * 1000 ))"
@@ -297,7 +470,7 @@ assert_status "200" "historian.query request"
 assert_json_true '.result.isError == false' "historian.query returns success"
 assert_json_true '.result.structuredContent.rowCount | type == "number"' "historian.query rowCount present"
 
-# 13) SSE fallback handshake
+# 15) SSE fallback handshake
 request "GET" "/sse"
 SSE_SESSION_ID="$(header_value "Mcp-Session-Id")"
 if [[ "$RESPONSE_STATUS" == "200" ]]; then

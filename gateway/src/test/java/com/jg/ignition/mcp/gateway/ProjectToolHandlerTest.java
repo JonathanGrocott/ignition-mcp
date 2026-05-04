@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
+import com.inductiveautomation.ignition.common.ImmutableBytes;
 import com.inductiveautomation.ignition.common.db.namedquery.NamedQuery;
 import com.inductiveautomation.ignition.common.db.namedquery.NamedQueryManager;
 import com.inductiveautomation.ignition.common.resourcecollection.Resource;
@@ -17,6 +19,8 @@ import com.inductiveautomation.ignition.gateway.dataroutes.RequestContext;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
 import com.inductiveautomation.ignition.gateway.project.ProjectManager;
 import com.jg.ignition.mcp.common.ToolExecutionResult;
+import com.jg.ignition.mcp.gateway.tools.ProjectResourceToolHandler;
+import com.jg.ignition.mcp.gateway.tools.ProjectScriptToolHandler;
 import com.jg.ignition.mcp.gateway.tools.ProjectToolHandler;
 import org.junit.jupiter.api.Test;
 
@@ -357,6 +361,263 @@ class ProjectToolHandlerTest {
         assertTrue(result.text().contains("allowlist"));
     }
 
+    @Test
+    void projectResourceListAndReadExposeMetadataAndData() {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+
+        RuntimeResourceCollection collection = mock(RuntimeResourceCollection.class);
+        Resource resource = resource("ignition", "script-app-library", "Shared/Utils");
+        when(resource.getCollectionName()).thenReturn("samplequickstart");
+        when(resource.getDefiningCollectionName()).thenReturn("samplequickstart");
+        when(resource.getDefiningCollectionNames()).thenReturn(List.of("samplequickstart"));
+        when(resource.getDataKeys()).thenReturn(ImmutableSet.of(Resource.DEFAULT_JSON_KEY));
+        when(resource.getData(Resource.DEFAULT_JSON_KEY)).thenReturn(Optional.of(ImmutableBytes.ofString("{\"hello\":\"world\"}")));
+        when(resource.getAttributes()).thenReturn(Map.of());
+        when(resource.getApplicationScope()).thenReturn(7);
+        when(resource.getVersion()).thenReturn(1);
+        when(projectManager.find("samplequickstart")).thenReturn(Optional.of(collection));
+        when(projectManager.getResource(eq("samplequickstart"), eq(new ResourcePath(new ResourceType("ignition", "script-app-library"), "Shared/Utils"))))
+            .thenReturn(Optional.of(resource));
+        when(collection.getAllResources()).thenReturn(Map.of(mock(ResourceId.class), resource));
+
+        ObjectNode listArgs = mapper.createObjectNode();
+        listArgs.put("project", "samplequickstart");
+        listArgs.put("moduleId", "ignition");
+        listArgs.put("resourceType", "script-app-library");
+        ToolExecutionResult listResult = new ProjectResourceToolHandler("ignition.projects.resource.list")
+            .execute(listArgs, toolContext(gatewayContext));
+        assertFalse(listResult.isError(), listResult.text());
+        assertEquals(1, listResult.structuredContent().path("count").asInt());
+
+        ObjectNode readArgs = mapper.createObjectNode();
+        readArgs.put("project", "samplequickstart");
+        readArgs.put("moduleId", "ignition");
+        readArgs.put("resourceType", "script-app-library");
+        readArgs.put("path", "Shared/Utils");
+        ToolExecutionResult readResult = new ProjectResourceToolHandler("ignition.projects.resource.read")
+            .execute(readArgs, toolContext(gatewayContext));
+        assertFalse(readResult.isError(), readResult.text());
+        assertEquals("world", readResult.structuredContent()
+            .path("resource")
+            .path("data")
+            .path(Resource.DEFAULT_JSON_KEY)
+            .path("value")
+            .path("hello")
+            .asText());
+    }
+
+    @Test
+    void projectResourceExportBuildsAllowlistedBundleWithData() {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+
+        RuntimeResourceCollection collection = mock(RuntimeResourceCollection.class);
+        Resource included = resource("ignition", "script-app-library", "Shared/Utils");
+        when(included.getCollectionName()).thenReturn("samplequickstart");
+        when(included.getDefiningCollectionName()).thenReturn("samplequickstart");
+        when(included.getDefiningCollectionNames()).thenReturn(List.of("samplequickstart"));
+        when(included.getDataKeys()).thenReturn(ImmutableSet.of(Resource.DEFAULT_JSON_KEY));
+        when(included.getData(Resource.DEFAULT_JSON_KEY)).thenReturn(Optional.of(ImmutableBytes.ofString("{\"hello\":\"world\"}")));
+        when(included.getAttributes()).thenReturn(Map.of());
+        when(included.getApplicationScope()).thenReturn(7);
+        when(included.getVersion()).thenReturn(1);
+
+        Resource excluded = resource("other", "private", "Hidden");
+        when(excluded.getCollectionName()).thenReturn("samplequickstart");
+        when(excluded.getDataKeys()).thenReturn(ImmutableSet.of());
+        when(excluded.getAttributes()).thenReturn(Map.of());
+        when(excluded.getApplicationScope()).thenReturn(7);
+        when(excluded.getVersion()).thenReturn(1);
+
+        when(projectManager.find("samplequickstart")).thenReturn(Optional.of(collection));
+        when(collection.getAllResources()).thenReturn(Map.of(
+            mock(ResourceId.class),
+            included,
+            mock(ResourceId.class),
+            excluded
+        ));
+
+        McpServerConfigResource config = new McpServerConfigResource(
+            true,
+            "ignition-mcp",
+            List.of(),
+            List.of(),
+            true,
+            true,
+            100,
+            100,
+            50,
+            true,
+            25,
+            List.of("*"),
+            List.of("[default]MCP/*"),
+            List.of("*"),
+            List.of("*"),
+            List.of("samplequickstart/ignition/*/*"),
+            List.of("*"),
+            List.of("*"),
+            List.of("*"),
+            List.of("*"),
+            "",
+            5000,
+            1000
+        );
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("project", "samplequickstart");
+        ToolExecutionResult result = new ProjectResourceToolHandler("ignition.projects.resource.export")
+            .execute(args, toolContext(gatewayContext, config));
+        assertFalse(result.isError(), result.text());
+        assertEquals("ignition-mcp.project-resource-bundle.v1", result.structuredContent().path("bundle").path("format").asText());
+        assertEquals(1, result.structuredContent().path("bundle").path("resourceCount").asInt());
+        assertEquals("world", result.structuredContent()
+            .path("bundle")
+            .path("resources")
+            .path(0)
+            .path("data")
+            .path(Resource.DEFAULT_JSON_KEY)
+            .path("value")
+            .path("hello")
+            .asText());
+    }
+
+    @Test
+    void projectScriptWriteDryRunDoesNotPush() throws Exception {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+        when(projectManager.isMutable("samplequickstart")).thenReturn(true);
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("project", "samplequickstart");
+        args.put("scriptType", "startup");
+        args.put("code", "print 'hello'");
+
+        ToolExecutionResult result = new ProjectScriptToolHandler("ignition.scripts.project.write")
+            .execute(args, toolContext(gatewayContext));
+        assertFalse(result.isError(), result.text());
+        assertTrue(result.structuredContent().path("dryRun").asBoolean());
+        verify(projectManager, never()).push(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void projectScriptImportDryRunBuildsTypedPlanWithoutPush() throws Exception {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+        when(projectManager.isMutable("samplequickstart")).thenReturn(true);
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("targetProject", "samplequickstart");
+        ObjectNode bundle = args.putObject("bundle");
+        ArrayNode resources = bundle.putArray("resources");
+        resources.add(exportedResource("ignition", "script-app-library", "MCP/Shared", "{\"scripts\":{\"MCP/Shared\":\"print 'hello'\"}}"));
+        resources.add(exportedResource("ignition", "named-query", "Reports/Skip", "{}"));
+
+        ToolExecutionResult result = new ProjectScriptToolHandler("ignition.scripts.project.import")
+            .execute(args, toolContext(gatewayContext));
+        assertFalse(result.isError(), result.text());
+        assertTrue(result.structuredContent().path("dryRun").asBoolean());
+        assertEquals(1, result.structuredContent().path("importCount").asInt());
+        assertEquals(1, result.structuredContent().path("skippedCount").asInt());
+        assertEquals("library", result.structuredContent().path("resources").path(0).path("scriptType").asText());
+        verify(projectManager, never()).push(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void projectScriptReadDecodesLibraryPayload() {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+
+        Resource resource = resource("ignition", "script-app-library", "Shared/Utils");
+        when(resource.getCollectionName()).thenReturn("samplequickstart");
+        when(resource.getDefiningCollectionName()).thenReturn("samplequickstart");
+        when(resource.getDefiningCollectionNames()).thenReturn(List.of("samplequickstart"));
+        when(resource.getDataKeys()).thenReturn(ImmutableSet.of(Resource.DEFAULT_JSON_KEY));
+        when(resource.getData(Resource.DEFAULT_JSON_KEY))
+            .thenReturn(Optional.of(ImmutableBytes.ofString("{\"scripts\":{\"Shared/Utils\":\"print 'hello'\"}}")));
+        when(resource.getAttributes()).thenReturn(Map.of());
+        when(resource.getApplicationScope()).thenReturn(7);
+        when(resource.getVersion()).thenReturn(1);
+        when(projectManager.getResource(
+            eq("samplequickstart"),
+            eq(new ResourcePath(new ResourceType("ignition", "script-app-library"), "Shared/Utils"))
+        )).thenReturn(Optional.of(resource));
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("project", "samplequickstart");
+        args.put("scriptType", "library");
+        args.put("path", "Shared/Utils");
+
+        ToolExecutionResult result = new ProjectScriptToolHandler("ignition.scripts.project.read")
+            .execute(args, toolContext(gatewayContext));
+        assertFalse(result.isError(), result.text());
+        assertEquals(
+            "print 'hello'",
+            result.structuredContent()
+                .path("script")
+                .path("decoded")
+                .path("library")
+                .path("scripts")
+                .path("Shared/Utils")
+                .asText()
+        );
+    }
+
+    @Test
+    void namedQueryWriteDryRunBuildsPlanWithoutPush() throws Exception {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+        when(projectManager.isMutable("samplequickstart")).thenReturn(true);
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("project", "samplequickstart");
+        args.put("path", "Reports/New Audit");
+        args.put("query", "select 1");
+        args.put("type", "ScalarQuery");
+
+        ToolExecutionResult result = new ProjectToolHandler("ignition.namedqueries.write")
+            .execute(args, toolContext(gatewayContext));
+        assertFalse(result.isError(), result.text());
+        assertTrue(result.structuredContent().path("dryRun").asBoolean());
+        verify(projectManager, never()).push(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void namedQueryImportDryRunBuildsTypedPlanWithoutPush() throws Exception {
+        GatewayContext gatewayContext = mock(GatewayContext.class);
+        ProjectManager projectManager = mock(ProjectManager.class);
+        when(gatewayContext.getProjectManager()).thenReturn(projectManager);
+        when(projectManager.getNames()).thenReturn(List.of("samplequickstart"));
+        when(projectManager.isMutable("samplequickstart")).thenReturn(true);
+
+        ObjectNode args = mapper.createObjectNode();
+        args.put("targetProject", "samplequickstart");
+        ObjectNode bundle = args.putObject("bundle");
+        ArrayNode resources = bundle.putArray("resources");
+        resources.add(exportedResource("ignition", "named-query", "MCP/Imported", "{\"query\":\"SELECT 1\"}"));
+        resources.add(exportedResource("ignition", "script-app-library", "MCP/Skip", "{}"));
+
+        ToolExecutionResult result = new ProjectToolHandler("ignition.namedqueries.import")
+            .execute(args, toolContext(gatewayContext));
+        assertFalse(result.isError(), result.text());
+        assertTrue(result.structuredContent().path("dryRun").asBoolean());
+        assertEquals(1, result.structuredContent().path("importCount").asInt());
+        assertEquals(1, result.structuredContent().path("skippedCount").asInt());
+        assertEquals("MCP/Imported", result.structuredContent().path("resources").path(0).path("path").asText());
+        verify(projectManager, never()).push(org.mockito.ArgumentMatchers.anyList());
+    }
+
     private ToolCallContext toolContext(GatewayContext gatewayContext) {
         return toolContext(gatewayContext, McpServerConfigResource.DEFAULT);
     }
@@ -377,6 +638,21 @@ class ProjectToolHandlerTest {
         Resource resource = mock(Resource.class);
         when(resource.isFolder()).thenReturn(false);
         when(resource.getResourcePath()).thenReturn(new ResourcePath(new ResourceType(moduleId, typeId), path));
+        return resource;
+    }
+
+    private ObjectNode exportedResource(String moduleId, String resourceType, String path, String data) {
+        ObjectNode resource = mapper.createObjectNode();
+        resource.put("project", "source");
+        resource.put("moduleId", moduleId);
+        resource.put("resourceType", resourceType);
+        resource.put("path", path);
+        resource.put("applicationScope", 7);
+        resource.put("version", 1);
+        resource.put("documentation", "");
+        ObjectNode dataNode = resource.putObject("data").putObject(Resource.DEFAULT_JSON_KEY);
+        dataNode.put("encoding", "utf-8");
+        dataNode.put("value", data);
         return resource;
     }
 

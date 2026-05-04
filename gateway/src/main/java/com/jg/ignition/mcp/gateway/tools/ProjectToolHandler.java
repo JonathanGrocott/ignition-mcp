@@ -6,10 +6,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.inductiveautomation.ignition.common.Dataset;
 import com.inductiveautomation.ignition.common.db.namedquery.NamedQuery;
 import com.inductiveautomation.ignition.common.db.namedquery.NamedQueryManager;
+import com.inductiveautomation.ignition.common.resourcecollection.ResourceBuilder;
 import com.inductiveautomation.ignition.common.resourcecollection.Resource;
 import com.inductiveautomation.ignition.common.resourcecollection.ResourceCollectionManifest;
 import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath;
 import com.inductiveautomation.ignition.common.resourcecollection.RuntimeResourceCollection;
+import com.inductiveautomation.ignition.common.sqltags.model.types.DataType;
+import com.inductiveautomation.ignition.common.util.TimeUnits;
 import com.inductiveautomation.ignition.gateway.project.ProjectManager;
 import com.jg.ignition.mcp.common.PermissionRequirement;
 import com.jg.ignition.mcp.common.ToolDefinition;
@@ -26,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
 public class ProjectToolHandler implements ToolHandler {
 
@@ -55,6 +59,9 @@ public class ProjectToolHandler implements ToolHandler {
             case "ignition.namedqueries.list" -> listNamedQueries(arguments, context);
             case "ignition.namedqueries.read" -> readNamedQuery(arguments, context);
             case "ignition.namedqueries.execute" -> executeNamedQuery(arguments, context);
+            case "ignition.namedqueries.write" -> writeNamedQuery(arguments, context);
+            case "ignition.namedqueries.delete" -> deleteNamedQuery(arguments, context);
+            case "ignition.namedqueries.import" -> importNamedQueries(arguments, context);
             default -> ToolExecutionResult.error("Unsupported project tool: " + toolName);
         };
     }
@@ -272,7 +279,11 @@ public class ProjectToolHandler implements ToolHandler {
         if (queryPath.isBlank()) {
             return ToolExecutionResult.error("Named query execute requires path");
         }
-        if (!context.safetyPolicy().isNamedQueryExecuteAllowed(projectName, queryPath)) {
+        if (!context.safetyPolicy().isNamedQueryExecuteAllowed(
+            context.authContext().tokenName(),
+            projectName,
+            queryPath
+        )) {
             context.auditLogger().logWriteAttempt(
                 context.authContext().tokenName(),
                 toolName,
@@ -280,7 +291,10 @@ public class ProjectToolHandler implements ToolHandler {
                 false,
                 projectName + "/" + queryPath
             );
-            return ToolExecutionResult.error("Named query execute blocked by allowlist: " + projectName + "/" + queryPath);
+            return ToolExecutionResult.error(
+                "Named query execute blocked by allowlist: " + projectName + "/" + queryPath,
+                ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Named query execute blocked by allowlist")
+            );
         }
 
         NamedQueryLookup lookup = lookupNamedQuery(context, projectName, queryPath);
@@ -369,6 +383,205 @@ public class ProjectToolHandler implements ToolHandler {
         return ToolExecutionResult.ok("Named query executed", result);
     }
 
+    private ToolExecutionResult writeNamedQuery(JsonNode arguments, ToolCallContext context) {
+        if (arguments == null || !arguments.isObject()) {
+            return ToolExecutionResult.error("Named query write requires an arguments object");
+        }
+
+        String projectName = arguments.path("project").asText("").trim();
+        String queryPath = arguments.path("path").asText("").trim();
+        String operation = arguments.path("operation").asText("upsert").trim().toLowerCase();
+        boolean createOnly = "create".equals(operation);
+        boolean editOnly = "edit".equals(operation);
+        if (projectName.isBlank()) {
+            return ToolExecutionResult.error("Named query write requires project");
+        }
+        if (queryPath.isBlank()) {
+            return ToolExecutionResult.error("Named query write requires path");
+        }
+        if (!createOnly && !editOnly && !"upsert".equals(operation)) {
+            return ToolExecutionResult.error("operation must be one of create, edit, upsert");
+        }
+        if (!context.safetyPolicy().isNamedQueryWriteAllowed(
+            context.authContext().tokenName(),
+            projectName,
+            queryPath
+        )) {
+            context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, false, false, projectName + "/" + queryPath);
+            return ToolExecutionResult.error(
+                "Named query write blocked by allowlist: " + projectName + "/" + queryPath,
+                ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Named query write blocked by allowlist")
+            );
+        }
+
+        ProjectManager projectManager = ProjectResourceService.projectManager(context);
+        ToolExecutionResult mutableError = ProjectResourceService.requireMutable(projectManager, projectName);
+        if (mutableError != null) {
+            return mutableError;
+        }
+
+        NamedQuery namedQuery;
+        try {
+            namedQuery = parseNamedQuery(arguments);
+        }
+        catch (IllegalArgumentException e) {
+            return ToolExecutionResult.error("Invalid named query: " + e.getMessage());
+        }
+
+        ResourcePath resourcePath = NamedQuery.RESOURCE_TYPE.subPath(queryPath);
+        if (context.safetyPolicy().isDryRun(arguments)) {
+            ObjectNode result = context.objectMapper().createObjectNode();
+            result.put("dryRun", true);
+            result.put("operation", operation);
+            result.put("project", projectName);
+            result.put("path", queryPath);
+            result.put("resourcePath", resourcePath.toString());
+            result.put("type", namedQuery.getType() == null ? "" : namedQuery.getType().name());
+            result.put("parameterCount", namedQuery.getParameters() == null ? 0 : namedQuery.getParameters().size());
+            return ToolExecutionResult.ok("Named query write dry-run plan generated", result);
+        }
+
+        Consumer<ResourceBuilder> serializer = NamedQuery.toResource(namedQuery);
+        Resource resource = ProjectResourceService.buildResource(
+            projectName,
+            resourcePath,
+            NamedQuery.CURRENT_RESOURCE_VERSION,
+            namedQuery.getDescription(),
+            serializer
+        );
+        ToolExecutionResult pushed = ProjectResourceService.pushUpsert(
+            context,
+            projectName,
+            resourcePath,
+            resource,
+            createOnly,
+            editOnly
+        );
+        context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, true, !pushed.isError(), projectName + "/" + queryPath);
+        return pushed;
+    }
+
+    private ToolExecutionResult deleteNamedQuery(JsonNode arguments, ToolCallContext context) {
+        if (arguments == null || !arguments.isObject()) {
+            return ToolExecutionResult.error("Named query delete requires an arguments object");
+        }
+        String projectName = arguments.path("project").asText("").trim();
+        String queryPath = arguments.path("path").asText("").trim();
+        if (projectName.isBlank()) {
+            return ToolExecutionResult.error("Named query delete requires project");
+        }
+        if (queryPath.isBlank()) {
+            return ToolExecutionResult.error("Named query delete requires path");
+        }
+        if (!context.safetyPolicy().isNamedQueryWriteAllowed(
+            context.authContext().tokenName(),
+            projectName,
+            queryPath
+        )) {
+            context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, false, false, projectName + "/" + queryPath);
+            return ToolExecutionResult.error(
+                "Named query delete blocked by allowlist: " + projectName + "/" + queryPath,
+                ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Named query delete blocked by allowlist")
+            );
+        }
+        ProjectManager projectManager = ProjectResourceService.projectManager(context);
+        ToolExecutionResult mutableError = ProjectResourceService.requireMutable(projectManager, projectName);
+        if (mutableError != null) {
+            return mutableError;
+        }
+        ResourcePath resourcePath = NamedQuery.RESOURCE_TYPE.subPath(queryPath);
+        if (context.safetyPolicy().isDryRun(arguments)) {
+            ObjectNode result = context.objectMapper().createObjectNode();
+            result.put("dryRun", true);
+            result.put("operation", "delete");
+            result.put("project", projectName);
+            result.put("path", queryPath);
+            result.put("resourcePath", resourcePath.toString());
+            return ToolExecutionResult.ok("Named query delete dry-run plan generated", result);
+        }
+        ToolExecutionResult pushed = ProjectResourceService.pushDelete(context, projectName, resourcePath);
+        context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, true, !pushed.isError(), projectName + "/" + queryPath);
+        return pushed;
+    }
+
+    private ToolExecutionResult importNamedQueries(JsonNode arguments, ToolCallContext context) {
+        if (arguments == null || !arguments.isObject()) {
+            return ToolExecutionResult.error("Named query import requires an arguments object");
+        }
+        JsonNode resourcesNode = importResourcesNode(arguments);
+        if (!resourcesNode.isArray()) {
+            return ToolExecutionResult.error("Named query import requires bundle.resources or resources array");
+        }
+
+        String projectName = arguments.path("targetProject").asText(arguments.path("project").asText(arguments.path("bundle").path("project").asText(""))).trim();
+        String operation = arguments.path("operation").asText("upsert").trim().toLowerCase();
+        boolean createOnly = "create".equals(operation);
+        boolean editOnly = "edit".equals(operation);
+        String pathPrefix = ProjectResourceService.normalizeResourcePath(arguments.path("pathPrefix").asText(""));
+        if (projectName.isBlank()) {
+            return ToolExecutionResult.error("Named query import requires targetProject or project");
+        }
+        if (!createOnly && !editOnly && !"upsert".equals(operation)) {
+            return ToolExecutionResult.error("operation must be one of create, edit, upsert");
+        }
+
+        ProjectManager projectManager = ProjectResourceService.projectManager(context);
+        ToolExecutionResult mutableError = ProjectResourceService.requireMutable(projectManager, projectName);
+        if (mutableError != null) {
+            return mutableError;
+        }
+
+        List<Resource> imports = new ArrayList<>();
+        ObjectNode out = context.objectMapper().createObjectNode();
+        ArrayNode rows = out.putArray("resources");
+        int skipped = 0;
+        for (JsonNode resourceNode : resourcesNode) {
+            if (!isNamedQueryResourceNode(resourceNode)) {
+                skipped++;
+                continue;
+            }
+            String queryPath = ProjectResourceService.normalizeResourcePath(resourceNode.path("path").asText(""));
+            if (StringUtils.isNotBlank(pathPrefix) && !queryPath.startsWith(pathPrefix)) {
+                skipped++;
+                continue;
+            }
+            if (!context.safetyPolicy().isNamedQueryWriteAllowed(context.authContext().tokenName(), projectName, queryPath)) {
+                context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, false, false, projectName + "/" + queryPath);
+                return ToolExecutionResult.error(
+                    "Named query import blocked by allowlist: " + projectName + "/" + queryPath,
+                    ProjectResourceService.errorBody("ALLOWLIST_BLOCKED", "Named query import blocked by allowlist")
+                );
+            }
+            Resource resource = ProjectResourceService.resourceFromSerialized(context, projectName, resourceNode);
+            imports.add(resource);
+            ObjectNode row = rows.addObject();
+            row.put("project", projectName);
+            row.put("path", queryPath);
+            row.put("operation", operation);
+            row.put("resourcePath", resource.getResourcePath().toString());
+        }
+
+        boolean dryRun = context.safetyPolicy().isDryRun(arguments);
+        out.put("dryRun", dryRun);
+        out.put("project", projectName);
+        out.put("operation", operation);
+        out.put("importCount", imports.size());
+        out.put("skippedCount", skipped);
+        if (dryRun) {
+            return ToolExecutionResult.ok("Named query import dry-run plan generated", out);
+        }
+
+        ToolExecutionResult pushed = ProjectResourceService.pushUpserts(context, projectName, imports, createOnly, editOnly);
+        context.auditLogger().logWriteAttempt(context.authContext().tokenName(), toolName, true, !pushed.isError(), projectName + "/" + imports.size() + " named querie(s)");
+        if (pushed.isError()) {
+            return pushed;
+        }
+        ((ObjectNode) pushed.structuredContent()).set("resources", rows);
+        ((ObjectNode) pushed.structuredContent()).put("importCount", imports.size());
+        ((ObjectNode) pushed.structuredContent()).put("skippedCount", skipped);
+        return pushed;
+    }
+
     private static int countNamedQueries(ProjectManager projectManager, String projectName) {
         return projectManager.find(projectName)
             .map(RuntimeResourceCollection::getAllResources)
@@ -388,6 +601,16 @@ public class ProjectToolHandler implements ToolHandler {
             && "named-query".equalsIgnoreCase(resourcePath.getType());
     }
 
+    private static boolean isNamedQueryResourceNode(JsonNode resourceNode) {
+        return "ignition".equalsIgnoreCase(resourceNode.path("moduleId").asText(""))
+            && "named-query".equalsIgnoreCase(resourceNode.path("resourceType").asText(""));
+    }
+
+    private static JsonNode importResourcesNode(JsonNode arguments) {
+        JsonNode bundleResources = arguments.path("bundle").path("resources");
+        return bundleResources.isArray() ? bundleResources : arguments.path("resources");
+    }
+
     private static String queryPath(ResourcePath resourcePath) {
         if (resourcePath == null || resourcePath.getPath() == null) {
             return "";
@@ -400,7 +623,10 @@ public class ProjectToolHandler implements ToolHandler {
     }
 
     private static boolean isMutatingTool(String name) {
-        return "ignition.namedqueries.execute".equals(name);
+        return "ignition.namedqueries.execute".equals(name)
+            || "ignition.namedqueries.write".equals(name)
+            || "ignition.namedqueries.delete".equals(name)
+            || "ignition.namedqueries.import".equals(name);
     }
 
     private static boolean isMutatingQuery(NamedQuery namedQuery) {
@@ -426,6 +652,63 @@ public class ProjectToolHandler implements ToolHandler {
             parameters.put(entry.getKey(), context.objectMapper().convertValue(entry.getValue(), Object.class))
         );
         return parameters;
+    }
+
+    private static NamedQuery parseNamedQuery(JsonNode arguments) {
+        NamedQuery query = new NamedQuery();
+        query.setType(parseEnum(arguments.path("type").asText("Query"), NamedQuery.Type.class, "type"));
+        query.setQuery(arguments.path("query").asText(""));
+        query.setDatabase(arguments.path("database").asText(""));
+        query.setDescription(arguments.path("description").asText(""));
+        query.setEnabled(arguments.path("enabled").asBoolean(true));
+        query.setReadOnly(arguments.path("readOnly").asBoolean(query.getType() != NamedQuery.Type.UpdateQuery));
+        query.setCachingEnabled(arguments.path("cachingEnabled").asBoolean(false));
+        query.setCacheAmount(arguments.path("cacheAmount").asInt(0));
+        if (arguments.hasNonNull("cacheUnit")) {
+            query.setCacheUnit(parseEnum(arguments.path("cacheUnit").asText(), TimeUnits.class, "cacheUnit"));
+        }
+        query.setAutoBatchEnabled(arguments.path("autoBatchEnabled").asBoolean(false));
+        query.setUseMaxReturnSize(arguments.path("useMaxReturnSize").asBoolean(false));
+        query.setMaxReturnSize(arguments.path("maxReturnSize").asLong(0L));
+        query.setFallbackEnabled(arguments.path("fallbackEnabled").asBoolean(false));
+        query.setFallbackValue(arguments.path("fallbackValue").asText(""));
+        query.setSyntaxProvider(arguments.path("syntaxProvider").asText(""));
+
+        List<NamedQuery.Parameter> parameters = new ArrayList<>();
+        JsonNode parameterNodes = arguments.path("parameters");
+        if (parameterNodes.isArray()) {
+            for (JsonNode parameterNode : parameterNodes) {
+                String identifier = parameterNode.path("name").asText(parameterNode.path("identifier").asText("")).trim();
+                if (identifier.isBlank()) {
+                    throw new IllegalArgumentException("parameter name cannot be blank");
+                }
+                if (!NamedQuery.isValidParamName(identifier)) {
+                    throw new IllegalArgumentException("invalid parameter name: " + identifier);
+                }
+                NamedQuery.ParameterType parameterType = parseEnum(
+                    parameterNode.path("type").asText("Parameter"),
+                    NamedQuery.ParameterType.class,
+                    "parameter.type"
+                );
+                DataType dataType = parseEnum(
+                    parameterNode.path("sqlType").asText("String"),
+                    DataType.class,
+                    "parameter.sqlType"
+                );
+                parameters.add(new NamedQuery.Parameter(parameterType, identifier, dataType));
+            }
+        }
+        query.setParameters(parameters);
+        return query;
+    }
+
+    private static <T extends Enum<T>> T parseEnum(String rawValue, Class<T> enumType, String fieldName) {
+        try {
+            return Enum.valueOf(enumType, rawValue);
+        }
+        catch (Exception e) {
+            throw new IllegalArgumentException("invalid " + fieldName + ": " + rawValue);
+        }
     }
 
     private static ObjectNode datasetToJson(Dataset dataset, int maxRows, ToolCallContext context) {
@@ -489,6 +772,9 @@ public class ProjectToolHandler implements ToolHandler {
             case "ignition.namedqueries.list" -> "List named queries by project";
             case "ignition.namedqueries.read" -> "Read a named query definition (SQL, type, and parameters)";
             case "ignition.namedqueries.execute" -> "Execute a named query (allowlisted, dry-run by default)";
+            case "ignition.namedqueries.write" -> "Create or edit a named query resource";
+            case "ignition.namedqueries.delete" -> "Delete a named query resource";
+            case "ignition.namedqueries.import" -> "Import named query resources from a reviewed project resource bundle";
             default -> "Project tool";
         };
     }
@@ -518,6 +804,35 @@ public class ProjectToolHandler implements ToolHandler {
                 props.putObject("includeResultData").put("type", "boolean");
                 props.putObject("commit").put("type", "boolean");
                 schema.putArray("required").add("project").add("path");
+            }
+            case "ignition.namedqueries.write" -> {
+                props.putObject("operation").put("type", "string");
+                props.putObject("project").put("type", "string");
+                props.putObject("path").put("type", "string");
+                props.putObject("type").put("type", "string");
+                props.putObject("query").put("type", "string");
+                props.putObject("database").put("type", "string");
+                props.putObject("description").put("type", "string");
+                props.putObject("enabled").put("type", "boolean");
+                props.putObject("readOnly").put("type", "boolean");
+                props.putObject("parameters").put("type", "array");
+                props.putObject("commit").put("type", "boolean");
+                schema.putArray("required").add("project").add("path").add("query");
+            }
+            case "ignition.namedqueries.delete" -> {
+                props.putObject("project").put("type", "string");
+                props.putObject("path").put("type", "string");
+                props.putObject("commit").put("type", "boolean");
+                schema.putArray("required").add("project").add("path");
+            }
+            case "ignition.namedqueries.import" -> {
+                props.putObject("targetProject").put("type", "string");
+                props.putObject("project").put("type", "string");
+                props.putObject("bundle").put("type", "object");
+                props.putObject("resources").put("type", "array");
+                props.putObject("pathPrefix").put("type", "string");
+                props.putObject("operation").put("type", "string");
+                props.putObject("commit").put("type", "boolean");
             }
             default -> {
                 // no-op

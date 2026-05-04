@@ -136,6 +136,7 @@ class McpToolIntegrationTest {
         ToolExecutionResult result = handler.execute(args, context);
         assertTrue(result.isError());
         assertTrue(result.text().contains("blocked"));
+        assertEquals("ALLOWLIST_BLOCKED", result.structuredContent().path("code").asText());
     }
 
     @Test

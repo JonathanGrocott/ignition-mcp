@@ -102,6 +102,39 @@ public record McpServerConfigResource(
     @FormField(FormFieldType.TEXT)
     List<String> allowedNamedQueryExecutePatterns,
 
+    @FormCategory("Safety")
+    @Label("Allowed Project Resource Read Patterns")
+    @FormField(FormFieldType.TEXT)
+    List<String> allowedProjectResourceReadPatterns,
+
+    @FormCategory("Safety")
+    @Label("Allowed Project Script Write Patterns")
+    @FormField(FormFieldType.TEXT)
+    List<String> allowedProjectScriptWritePatterns,
+
+    @FormCategory("Safety")
+    @Label("Allowed Named Query Write Patterns")
+    @FormField(FormFieldType.TEXT)
+    List<String> allowedNamedQueryWritePatterns,
+
+    @FormCategory("Authorization")
+    @Label("Allowed Read Tool Patterns")
+    @FormField(FormFieldType.TEXT)
+    @Description("Allowed read tool patterns. Entries can be tool glob patterns or token/tool glob pairs.")
+    List<String> allowedReadToolPatterns,
+
+    @FormCategory("Authorization")
+    @Label("Allowed Write Tool Patterns")
+    @FormField(FormFieldType.TEXT)
+    @Description("Allowed mutating tool patterns. Entries can be tool glob patterns or token/tool glob pairs.")
+    List<String> allowedWriteToolPatterns,
+
+    @FormCategory("Authorization")
+    @Label("Authorization Profiles")
+    @FormField(FormFieldType.TEXT)
+    @Description("Named per-token authorization profiles. Configure from the MCP admin UI as JSON.")
+    List<AuthorizationProfile> authorizationProfiles,
+
     @FormCategory("Historian")
     @Label("Historian Default Provider")
     @FormField(FormFieldType.TEXT)
@@ -136,9 +169,43 @@ public record McpServerConfigResource(
     private static final List<String> DEFAULT_ALLOWED_TAG_WRITE_PATTERNS = List.of("[default]MCP/*");
     private static final List<String> DEFAULT_ALLOWED_ALARM_ACK_SOURCES = List.of("*");
     private static final List<String> DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_PROJECT_RESOURCE_READ_PATTERNS = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_PROJECT_SCRIPT_WRITE_PATTERNS = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_NAMED_QUERY_WRITE_PATTERNS = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_READ_TOOL_PATTERNS = List.of("*");
+    private static final List<String> DEFAULT_ALLOWED_WRITE_TOOL_PATTERNS = List.of("*");
+    private static final List<AuthorizationProfile> DEFAULT_AUTHORIZATION_PROFILES = List.of();
     private static final String DEFAULT_HISTORIAN_PROVIDER = "";
     private static final int DEFAULT_HISTORIAN_MAX_ROWS = 5000;
     private static final int DEFAULT_NAMED_QUERY_MAX_ROWS = 1000;
+
+    public record AuthorizationProfile(
+        String name,
+        List<String> tokenPatterns,
+        List<String> allowedReadToolPatterns,
+        List<String> allowedWriteToolPatterns,
+        List<String> allowedTagReadPatterns,
+        List<String> allowedTagWritePatterns,
+        List<String> allowedAlarmAckSources,
+        List<String> allowedNamedQueryExecutePatterns,
+        List<String> allowedProjectResourceReadPatterns,
+        List<String> allowedProjectScriptWritePatterns,
+        List<String> allowedNamedQueryWritePatterns
+    ) {
+        public AuthorizationProfile {
+            name = StringUtils.defaultString(name).trim();
+            tokenPatterns = immutableList(tokenPatterns);
+            allowedReadToolPatterns = immutableList(allowedReadToolPatterns);
+            allowedWriteToolPatterns = immutableList(allowedWriteToolPatterns);
+            allowedTagReadPatterns = immutableList(allowedTagReadPatterns);
+            allowedTagWritePatterns = immutableList(allowedTagWritePatterns);
+            allowedAlarmAckSources = immutableList(allowedAlarmAckSources);
+            allowedNamedQueryExecutePatterns = immutableList(allowedNamedQueryExecutePatterns);
+            allowedProjectResourceReadPatterns = immutableList(allowedProjectResourceReadPatterns);
+            allowedProjectScriptWritePatterns = immutableList(allowedProjectScriptWritePatterns);
+            allowedNamedQueryWritePatterns = immutableList(allowedNamedQueryWritePatterns);
+        }
+    }
 
     public static final ResourceType RESOURCE_TYPE = new ResourceType(McpConstants.MODULE_ID, "mcp-config");
 
@@ -158,6 +225,12 @@ public record McpServerConfigResource(
         DEFAULT_ALLOWED_TAG_WRITE_PATTERNS,
         DEFAULT_ALLOWED_ALARM_ACK_SOURCES,
         DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS,
+        DEFAULT_ALLOWED_PROJECT_RESOURCE_READ_PATTERNS,
+        DEFAULT_ALLOWED_PROJECT_SCRIPT_WRITE_PATTERNS,
+        DEFAULT_ALLOWED_NAMED_QUERY_WRITE_PATTERNS,
+        DEFAULT_ALLOWED_READ_TOOL_PATTERNS,
+        DEFAULT_ALLOWED_WRITE_TOOL_PATTERNS,
+        DEFAULT_AUTHORIZATION_PROFILES,
         DEFAULT_HISTORIAN_PROVIDER,
         DEFAULT_HISTORIAN_MAX_ROWS,
         DEFAULT_NAMED_QUERY_MAX_ROWS
@@ -201,9 +274,128 @@ public record McpServerConfigResource(
         allowedNamedQueryExecutePatterns = allowedNamedQueryExecutePatterns == null
             ? DEFAULT_ALLOWED_NAMED_QUERY_EXECUTE_PATTERNS
             : List.copyOf(allowedNamedQueryExecutePatterns);
+        allowedProjectResourceReadPatterns = allowedProjectResourceReadPatterns == null
+            ? DEFAULT_ALLOWED_PROJECT_RESOURCE_READ_PATTERNS
+            : List.copyOf(allowedProjectResourceReadPatterns);
+        allowedProjectScriptWritePatterns = allowedProjectScriptWritePatterns == null
+            ? DEFAULT_ALLOWED_PROJECT_SCRIPT_WRITE_PATTERNS
+            : List.copyOf(allowedProjectScriptWritePatterns);
+        allowedNamedQueryWritePatterns = allowedNamedQueryWritePatterns == null
+            ? DEFAULT_ALLOWED_NAMED_QUERY_WRITE_PATTERNS
+            : List.copyOf(allowedNamedQueryWritePatterns);
+        allowedReadToolPatterns = allowedReadToolPatterns == null
+            ? DEFAULT_ALLOWED_READ_TOOL_PATTERNS
+            : List.copyOf(allowedReadToolPatterns);
+        allowedWriteToolPatterns = allowedWriteToolPatterns == null
+            ? DEFAULT_ALLOWED_WRITE_TOOL_PATTERNS
+            : List.copyOf(allowedWriteToolPatterns);
+        authorizationProfiles = authorizationProfiles == null
+            ? DEFAULT_AUTHORIZATION_PROFILES
+            : List.copyOf(authorizationProfiles);
         historianDefaultProvider = historianDefaultProvider == null ? DEFAULT_HISTORIAN_PROVIDER : historianDefaultProvider;
         historianMaxRows = positiveOrDefault(historianMaxRows, DEFAULT_HISTORIAN_MAX_ROWS);
         namedQueryMaxRows = positiveOrDefault(namedQueryMaxRows, DEFAULT_NAMED_QUERY_MAX_ROWS);
+    }
+
+    public McpServerConfigResource(
+        Boolean enabled,
+        String mountAlias,
+        List<String> allowedOrigins,
+        List<String> allowedHosts,
+        Boolean streamableEnabled,
+        Boolean sseFallbackEnabled,
+        Integer maxConcurrentSessions,
+        Integer maxRequestsPerMinutePerToken,
+        Integer maxWriteOpsPerMinutePerToken,
+        Boolean defaultDryRun,
+        Integer maxBatchWriteSize,
+        List<String> allowedTagReadPatterns,
+        List<String> allowedTagWritePatterns,
+        List<String> allowedAlarmAckSources,
+        List<String> allowedNamedQueryExecutePatterns,
+        String historianDefaultProvider,
+        Integer historianMaxRows,
+        Integer namedQueryMaxRows
+    ) {
+        this(
+            enabled,
+            mountAlias,
+            allowedOrigins,
+            allowedHosts,
+            streamableEnabled,
+            sseFallbackEnabled,
+            maxConcurrentSessions,
+            maxRequestsPerMinutePerToken,
+            maxWriteOpsPerMinutePerToken,
+            defaultDryRun,
+            maxBatchWriteSize,
+            allowedTagReadPatterns,
+            allowedTagWritePatterns,
+            allowedAlarmAckSources,
+            allowedNamedQueryExecutePatterns,
+            DEFAULT_ALLOWED_PROJECT_RESOURCE_READ_PATTERNS,
+            DEFAULT_ALLOWED_PROJECT_SCRIPT_WRITE_PATTERNS,
+            DEFAULT_ALLOWED_NAMED_QUERY_WRITE_PATTERNS,
+            DEFAULT_ALLOWED_READ_TOOL_PATTERNS,
+            DEFAULT_ALLOWED_WRITE_TOOL_PATTERNS,
+            DEFAULT_AUTHORIZATION_PROFILES,
+            historianDefaultProvider,
+            historianMaxRows,
+            namedQueryMaxRows
+        );
+    }
+
+    public McpServerConfigResource(
+        Boolean enabled,
+        String mountAlias,
+        List<String> allowedOrigins,
+        List<String> allowedHosts,
+        Boolean streamableEnabled,
+        Boolean sseFallbackEnabled,
+        Integer maxConcurrentSessions,
+        Integer maxRequestsPerMinutePerToken,
+        Integer maxWriteOpsPerMinutePerToken,
+        Boolean defaultDryRun,
+        Integer maxBatchWriteSize,
+        List<String> allowedTagReadPatterns,
+        List<String> allowedTagWritePatterns,
+        List<String> allowedAlarmAckSources,
+        List<String> allowedNamedQueryExecutePatterns,
+        List<String> allowedProjectResourceReadPatterns,
+        List<String> allowedProjectScriptWritePatterns,
+        List<String> allowedNamedQueryWritePatterns,
+        List<String> allowedReadToolPatterns,
+        List<String> allowedWriteToolPatterns,
+        String historianDefaultProvider,
+        Integer historianMaxRows,
+        Integer namedQueryMaxRows
+    ) {
+        this(
+            enabled,
+            mountAlias,
+            allowedOrigins,
+            allowedHosts,
+            streamableEnabled,
+            sseFallbackEnabled,
+            maxConcurrentSessions,
+            maxRequestsPerMinutePerToken,
+            maxWriteOpsPerMinutePerToken,
+            defaultDryRun,
+            maxBatchWriteSize,
+            allowedTagReadPatterns,
+            allowedTagWritePatterns,
+            allowedAlarmAckSources,
+            allowedNamedQueryExecutePatterns,
+            allowedProjectResourceReadPatterns,
+            allowedProjectScriptWritePatterns,
+            allowedNamedQueryWritePatterns,
+            allowedReadToolPatterns,
+            allowedWriteToolPatterns,
+            DEFAULT_AUTHORIZATION_PROFILES,
+            historianDefaultProvider,
+            historianMaxRows,
+            namedQueryMaxRows
+        );
     }
 
     private static int positiveOrDefault(Integer value, int defaultValue) {
@@ -211,6 +403,10 @@ public record McpServerConfigResource(
             return defaultValue;
         }
         return value;
+    }
+
+    private static List<String> immutableList(List<String> values) {
+        return values == null ? List.of() : List.copyOf(values);
     }
 
     public void validate(ValidationErrors.Builder errors) {
@@ -231,6 +427,19 @@ public record McpServerConfigResource(
         }
         if (namedQueryMaxRows <= 0) {
             errors.addFieldMessage("namedQueryMaxRows", "must be greater than 0");
+        }
+        for (int i = 0; i < authorizationProfiles.size(); i++) {
+            AuthorizationProfile profile = authorizationProfiles.get(i);
+            if (profile == null) {
+                errors.addFieldMessage("authorizationProfiles", "profile " + i + " cannot be null");
+                continue;
+            }
+            if (StringUtils.isBlank(profile.name())) {
+                errors.addFieldMessage("authorizationProfiles", "profile " + i + " requires a name");
+            }
+            if (profile.tokenPatterns().isEmpty()) {
+                errors.addFieldMessage("authorizationProfiles", "profile " + profile.name() + " requires at least one token pattern");
+            }
         }
     }
 }

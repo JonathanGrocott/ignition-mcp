@@ -72,7 +72,7 @@ public class TagToolHandler implements ToolHandler {
                 return ToolExecutionResult.ok("Browse completed", result);
             }
 
-            if (!context.safetyPolicy().isTagReadAllowed(path)) {
+            if (!context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), path)) {
                 return ToolExecutionResult.error("Browse path blocked by allowlist: " + path);
             }
 
@@ -118,7 +118,7 @@ public class TagToolHandler implements ToolHandler {
             if (path.isBlank()) {
                 return ToolExecutionResult.error("Read path cannot be empty");
             }
-            if (!context.safetyPolicy().isTagReadAllowed(path)) {
+            if (!context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), path)) {
                 return ToolExecutionResult.error("Read path blocked by allowlist: " + path);
             }
             TagPath tagPath = TagPathParser.parseSafe(path);
@@ -182,7 +182,7 @@ public class TagToolHandler implements ToolHandler {
             if (path.isBlank()) {
                 return ToolExecutionResult.error("Each write entry must include a non-empty path");
             }
-            if (!context.safetyPolicy().isTagWriteAllowed(path)) {
+            if (!context.safetyPolicy().isTagWriteAllowed(context.authContext().tokenName(), path)) {
                 context.auditLogger().logWriteAttempt(
                     context.authContext().tokenName(),
                     toolName,

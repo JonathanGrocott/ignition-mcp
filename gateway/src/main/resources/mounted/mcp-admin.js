@@ -343,10 +343,42 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           allowedNamedQueryExecutePatterns: Array.isArray(cfg.allowedNamedQueryExecutePatterns)
             ? cfg.allowedNamedQueryExecutePatterns
             : ["*"],
+          allowedProjectResourceReadPatterns: Array.isArray(cfg.allowedProjectResourceReadPatterns)
+            ? cfg.allowedProjectResourceReadPatterns
+            : ["*"],
+          allowedProjectScriptWritePatterns: Array.isArray(cfg.allowedProjectScriptWritePatterns)
+            ? cfg.allowedProjectScriptWritePatterns
+            : ["*"],
+          allowedNamedQueryWritePatterns: Array.isArray(cfg.allowedNamedQueryWritePatterns)
+            ? cfg.allowedNamedQueryWritePatterns
+            : ["*"],
+          allowedReadToolPatterns: Array.isArray(cfg.allowedReadToolPatterns)
+            ? cfg.allowedReadToolPatterns
+            : ["*"],
+          allowedWriteToolPatterns: Array.isArray(cfg.allowedWriteToolPatterns)
+            ? cfg.allowedWriteToolPatterns
+            : ["*"],
+          authorizationProfiles: Array.isArray(cfg.authorizationProfiles) ? cfg.authorizationProfiles : [],
           historianDefaultProvider: cfg.historianDefaultProvider || "",
           historianMaxRows: asNumber(cfg.historianMaxRows, 5000),
           namedQueryMaxRows: asNumber(cfg.namedQueryMaxRows, 1000)
         };
+      }
+
+      function profilesToText(profiles) {
+        return JSON.stringify(Array.isArray(profiles) ? profiles : [], null, 2);
+      }
+
+      function parseProfiles(text) {
+        const trimmed = String(text || "").trim();
+        if (!trimmed) {
+          return [];
+        }
+        const parsed = JSON.parse(trimmed);
+        if (!Array.isArray(parsed)) {
+          throw new Error("Authorization profiles must be a JSON array.");
+        }
+        return parsed;
       }
 
       function normalizeObservability(raw) {
@@ -384,6 +416,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         const [status, setStatus] = useState({});
         const [observability, setObservability] = useState(normalizeObservability(null));
         const [config, setConfig] = useState(normalizeConfig(null));
+        const [profileText, setProfileText] = useState(profilesToText([]));
         const [dirty, setDirty] = useState(false);
         const [autoRefresh, setAutoRefresh] = useState(true);
         const [lastLoadedAt, setLastLoadedAt] = useState(0);
@@ -399,7 +432,9 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
               setStatus(payload || {});
               setObservability(normalizeObservability(payload && payload.observability));
               if (!silent || !dirty) {
-                setConfig(normalizeConfig(payload && payload.config));
+                const nextConfig = normalizeConfig(payload && payload.config);
+                setConfig(nextConfig);
+                setProfileText(profilesToText(nextConfig.authorizationProfiles));
                 setDirty(false);
               }
               setCsrfToken(payload && payload.csrfToken ? payload.csrfToken : "");
@@ -441,11 +476,57 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           setDirty(true);
           setConfig(prev => ({ ...prev, [key]: textToList(value) }));
         };
+        const setProfiles = value => {
+          setDirty(true);
+          setProfileText(value);
+        };
+        const mcpEndpoint = `${window.location.origin}/data/${config.mountAlias || alias}/mcp`;
+        const copyText = (label, value) => {
+          if (!navigator.clipboard) {
+            setError("Clipboard API is not available in this browser.");
+            return;
+          }
+          navigator.clipboard.writeText(value)
+            .then(() => setMessage(`${label} copied.`))
+            .catch(err => setError(String(err || `Failed to copy ${label}.`)));
+        };
+        const sampleProfile = () => ({
+          name: "ops-safe-core",
+          tokenPatterns: ["ops-*"],
+          allowedReadToolPatterns: ["ignition.tags.*", "ignition.projects.*", "ignition.namedqueries.*", "ignition.historian.query", "ignition.alarms.list"],
+          allowedWriteToolPatterns: ["ignition.tags.write", "ignition.tags.definition.write", "ignition.scripts.project.*", "ignition.namedqueries.*"],
+          allowedTagReadPatterns: ["[default]Ops/*"],
+          allowedTagWritePatterns: ["[default]MCP/*", "[default]_types_/MCP/*"],
+          allowedAlarmAckSources: ["prov:ops/*"],
+          allowedNamedQueryExecutePatterns: ["*/Reports/*"],
+          allowedProjectResourceReadPatterns: ["*/ignition/*/*"],
+          allowedProjectScriptWritePatterns: ["*/library/MCP/*"],
+          allowedNamedQueryWritePatterns: ["*/MCP/*"]
+        });
+        const insertProfilePreset = () => {
+          let profiles = [];
+          try {
+            profiles = parseProfiles(profileText);
+          } catch (err) {
+            setError(String(err && err.message ? err.message : err));
+            return;
+          }
+          profiles.push(sampleProfile());
+          setProfiles(profilesToText(profiles));
+        };
 
         const saveConfig = () => {
+          let authorizationProfiles = [];
+          try {
+            authorizationProfiles = parseProfiles(profileText);
+          } catch (err) {
+            setError(String(err && err.message ? err.message : err));
+            return;
+          }
           setSaving(true);
           setError("");
           setMessage("");
+          const configToSave = { ...config, authorizationProfiles };
           fetch(`${endpointBase}/config`, {
             method: "POST",
             credentials: "same-origin",
@@ -453,12 +534,14 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
               "Content-Type": "application/json",
               ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
             },
-            body: JSON.stringify({ config })
+            body: JSON.stringify({ config: configToSave })
           })
             .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t || `HTTP ${r.status}`)))
             .then(payload => {
               if (payload && payload.config) {
-                setConfig(normalizeConfig(payload.config));
+                const nextConfig = normalizeConfig(payload.config);
+                setConfig(nextConfig);
+                setProfileText(profilesToText(nextConfig.authorizationProfiles));
               }
               setDirty(false);
               setMessage("Configuration saved.");
@@ -493,6 +576,18 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   onClick: () => loadStatus(false),
                   disabled: loading || saving
                 }, "Refresh"),
+                e("button", {
+                  className: "mcp-admin-btn",
+                  onClick: () => copyText("MCP endpoint", mcpEndpoint)
+                }, "Copy Endpoint"),
+                e("button", {
+                  className: "mcp-admin-btn",
+                  onClick: () => copyText("Codex command", `codex mcp add ignition-mcp --url ${mcpEndpoint} --bearer-token-env-var IGNITION_MCP_TOKEN`)
+                }, "Copy Codex"),
+                e("button", {
+                  className: "mcp-admin-btn",
+                  onClick: () => copyText("Claude command", `claude mcp add --transport http --scope user --header "X-Ignition-API-Token: \${IGNITION_MCP_TOKEN}" ignition-mcp ${mcpEndpoint}`)
+                }, "Copy Claude"),
                 e("label", { className: "mcp-admin-toggle", title: "Refreshes runtime and observability data every 10 seconds." },
                   e("input", {
                     type: "checkbox",
@@ -682,6 +777,67 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                     onChange: ev => setList("allowedNamedQueryExecutePatterns", ev.target.value)
                   }),
                   fieldHint("Examples: samplequickstart/*, */Reports/*")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Allowed Project Resource Read Patterns", "Allowed project resources in the form project/module/type/path."),
+                  e("textarea", {
+                    value: listToText(config.allowedProjectResourceReadPatterns),
+                    onChange: ev => setList("allowedProjectResourceReadPatterns", ev.target.value)
+                  }),
+                  fieldHint("Examples: *, samplequickstart/ignition/*")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Allowed Project Script Write Patterns", "Allowed project script write targets in the form project/type/path."),
+                  e("textarea", {
+                    value: listToText(config.allowedProjectScriptWritePatterns),
+                    onChange: ev => setList("allowedProjectScriptWritePatterns", ev.target.value)
+                  }),
+                  fieldHint("Examples: samplequickstart/library/*, samplequickstart/startup/*")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Allowed Named Query Write Patterns", "Allowed named query create/edit/delete targets in the form project/path."),
+                  e("textarea", {
+                    value: listToText(config.allowedNamedQueryWritePatterns),
+                    onChange: ev => setList("allowedNamedQueryWritePatterns", ev.target.value)
+                  }),
+                  fieldHint("Examples: samplequickstart/Reports/*")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Allowed Read Tool Patterns", "Read tool authorization patterns."),
+                  e("textarea", {
+                    value: listToText(config.allowedReadToolPatterns),
+                    onChange: ev => setList("allowedReadToolPatterns", ev.target.value)
+                  }),
+                  fieldHint("Examples: *, token-name/ignition.projects.*")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Allowed Write Tool Patterns", "Mutating tool authorization patterns."),
+                  e("textarea", {
+                    value: listToText(config.allowedWriteToolPatterns),
+                    onChange: ev => setList("allowedWriteToolPatterns", ev.target.value)
+                  }),
+                  fieldHint("Examples: ignition.tags.*, token-name/ignition.namedqueries.write")
+                ),
+
+                e("div", { className: "mcp-admin-field" },
+                  helpLabel("Authorization Profiles", "JSON array of named profiles assigned by API token name patterns."),
+                  e("button", {
+                    type: "button",
+                    className: "mcp-admin-btn",
+                    onClick: insertProfilePreset,
+                    style: { marginBottom: "8px" }
+                  }, "Insert Safe-Core Profile"),
+                  e("textarea", {
+                    value: profileText,
+                    onChange: ev => setProfiles(ev.target.value),
+                    style: { minHeight: "180px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }
+                  }),
+                  fieldHint("Fields: name, tokenPatterns, allowedReadToolPatterns, allowedWriteToolPatterns, allowedTagReadPatterns, allowedTagWritePatterns, allowedAlarmAckSources, allowedNamedQueryExecutePatterns, allowedProjectResourceReadPatterns, allowedProjectScriptWritePatterns, allowedNamedQueryWritePatterns.")
                 ),
 
                 e("div", { className: "mcp-admin-field" },

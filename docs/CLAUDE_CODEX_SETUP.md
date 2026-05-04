@@ -19,6 +19,7 @@ Notes:
 
 - MCP is served on the same HTTP/HTTPS port as the Ignition gateway (no separate MCP port in this version).
 - Admin routes (`/data/<alias>/admin/*`) are for Gateway Web UI sessions, not API tokens.
+- For build/install/smoke-test steps, see [Local Gateway Testing](LOCAL_GATEWAY_TESTING.md).
 
 Set your token in an environment variable:
 
