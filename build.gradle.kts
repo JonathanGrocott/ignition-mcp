@@ -3,7 +3,7 @@ plugins {
 }
 
 val sdkVersion by extra("8.3.3")
-val moduleVersion = "0.2.1-SNAPSHOT"
+val moduleVersion = "0.2.2"
 
 group = "com.jg.ignition"
 version = moduleVersion

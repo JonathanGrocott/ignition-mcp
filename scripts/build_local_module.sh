@@ -7,8 +7,9 @@ cd "$ROOT_DIR"
 
 echo "Building Ignition MCP module..."
 ./gradlew clean test zipModule checksumModl
+./scripts/sign-module.sh
 
-MODULE_PATH="$ROOT_DIR/build/ignition-mcp.unsigned.modl"
+MODULE_PATH="$ROOT_DIR/build/ignition-mcp.modl"
 if [[ ! -f "$MODULE_PATH" ]]; then
   echo "ERROR: Expected module artifact not found: $MODULE_PATH" >&2
   exit 1
