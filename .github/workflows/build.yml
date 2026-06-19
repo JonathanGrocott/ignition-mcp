@@ -31,15 +31,21 @@ jobs:
     - name: Build module
       run: ./gradlew clean test zipModule checksumModl
 
+    - name: Sign module
+      run: ./scripts/sign-module.sh
+
     - name: Prepare checksum file
-      run: sha256sum build/ignition-mcp.unsigned.modl > build/ignition-mcp.unsigned.modl.sha256
+      run: |
+        unzip -l build/ignition-mcp.modl | grep -q "certificates.p7b"
+        unzip -l build/ignition-mcp.modl | grep -q "signatures.properties"
+        sha256sum build/ignition-mcp.modl > build/ignition-mcp.modl.sha256
 
     - name: Upload module artifact
       uses: actions/upload-artifact@v4
       with:
         name: ignition-mcp-module
         path: |
-          build/ignition-mcp.unsigned.modl
-          build/ignition-mcp.unsigned.modl.sha256
+          build/ignition-mcp.modl
+          build/ignition-mcp.modl.sha256
           build/checksum/checksum.json
         retention-days: 30

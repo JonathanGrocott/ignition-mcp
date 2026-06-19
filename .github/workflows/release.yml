@@ -34,6 +34,9 @@ jobs:
     - name: Build module
       run: ./gradlew clean test zipModule checksumModl
 
+    - name: Sign module
+      run: ./scripts/sign-module.sh
+
     - name: Get version from build.gradle.kts
       id: get_version
       run: |
@@ -41,14 +44,25 @@ jobs:
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Module version: $VERSION"
 
+    - name: Verify tag matches module version
+      if: github.ref_type == 'tag'
+      run: |
+        EXPECTED_TAG="v$VERSION"
+        if [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+          echo "Tag $GITHUB_REF_NAME does not match module version $VERSION; expected $EXPECTED_TAG" >&2
+          exit 1
+        fi
+
     - name: Find .modl file
       id: find_modl
       run: |
-        MODL_FILE=$(find build -name "*.unsigned.modl" -type f | head -1)
+        MODL_FILE=$(find build -name "*.modl" ! -name "*.unsigned.modl" -type f | head -1)
         if [ -z "$MODL_FILE" ]; then
-          echo "No .unsigned.modl file found"
+          echo "No signed .modl file found"
           exit 1
         fi
+        unzip -l "$MODL_FILE" | grep -q "certificates.p7b"
+        unzip -l "$MODL_FILE" | grep -q "signatures.properties"
         SHA_FILE="${MODL_FILE}.sha256"
         sha256sum "$MODL_FILE" > "$SHA_FILE"
         echo "MODL_FILE=$MODL_FILE" >> $GITHUB_ENV
@@ -67,9 +81,10 @@ jobs:
           Version: ${{ env.VERSION }}
 
           ### Installation
-          1. Download the `.unsigned.modl` file below
+          1. Download the signed `.modl` file below
           2. Install it in Ignition via `Config > Modules > Install or Upgrade a Module`
-          3. Restart gateway if prompted
+          3. Accept the self-signed certificate if prompted
+          4. Restart gateway if prompted
 
           ### Verification
           - Gateway UI page: `Services > Ignition MCP > Configuration`

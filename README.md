@@ -50,12 +50,22 @@ Commands:
 ```bash
 ./gradlew test
 ./gradlew clean zipModule checksumModl
+./scripts/sign-module.sh
 ```
 
 Build output:
 
-- unsigned module: `build/ignition-mcp.unsigned.modl`
+- unsigned intermediate module: `build/ignition-mcp.unsigned.modl`
+- signed module: `build/ignition-mcp.modl`
 - checksum metadata: `build/checksum/checksum.json`
+
+If signing material does not exist yet, `./scripts/sign-module.sh` creates a simple self-signed certificate under `certs/`; those files are ignored by git. Keep the same generated files if you want future local builds to use the same certificate, so Ignition users only need to accept that certificate once.
+
+Verify the module contains the signing payload:
+
+```bash
+unzip -l build/ignition-mcp.modl | grep -E 'certificates.p7b|signatures.properties'
+```
 
 ## GitHub Actions
 
@@ -64,10 +74,10 @@ This repo includes CI/CD workflows similar to your other Ignition module project
 - `.github/workflows/build.yml`
   - Runs on pushes/PRs to `main|master|develop`
   - Builds and tests the module
-  - Uploads `.unsigned.modl` + checksum artifacts
+  - Signs and uploads `.modl` + checksum artifacts
 - `.github/workflows/release.yml`
   - Runs on version tags `v*` (and manual dispatch)
-  - Builds/tests, creates checksum file, and publishes a GitHub Release with module artifacts
+  - Builds/tests, signs the module, creates checksum file, and publishes a GitHub Release with module artifacts
 
 ## Install On Ignition Gateway
 
@@ -78,7 +88,7 @@ This repo includes CI/CD workflows similar to your other Ignition module project
 Example on macOS/Linux:
 
 ```bash
-cp build/ignition-mcp.unsigned.modl /usr/local/ignition/user-lib/modules/ignition-mcp.unsigned.modl
+cp build/ignition-mcp.modl /usr/local/ignition/user-lib/modules/ignition-mcp.modl
 sudo systemctl restart ignition
 ```
 
