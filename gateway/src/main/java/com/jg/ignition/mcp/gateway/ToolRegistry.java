@@ -9,6 +9,10 @@ import com.jg.ignition.mcp.gateway.tools.ProjectToolHandler;
 import com.jg.ignition.mcp.gateway.tools.TagDefinitionToolHandler;
 import com.jg.ignition.mcp.gateway.tools.TagToolHandler;
 import com.jg.ignition.mcp.gateway.tools.ToolHandler;
+import com.jg.ignition.mcp.gateway.tools.ProjectInspectionToolHandler;
+import com.jg.ignition.mcp.gateway.tools.TagInspectionToolHandler;
+import com.jg.ignition.mcp.gateway.tools.GatewayInspectionToolHandler;
+import com.jg.ignition.mcp.gateway.tools.ProjectChangeToolHandler;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -20,6 +24,7 @@ public class ToolRegistry {
     private final Map<String, ToolHandler> handlers = new LinkedHashMap<>();
 
     public ToolRegistry() {
+        ProjectChangeToolHandler.tools().forEach(this::register);
         register(new TagToolHandler("ignition.tags.browse"));
         register(new TagToolHandler("ignition.tags.read"));
         register(new TagToolHandler("ignition.tags.write"));
@@ -43,6 +48,24 @@ public class ToolRegistry {
         register(new HistorianToolHandler());
         register(new AlarmToolHandler("ignition.alarms.list"));
         register(new AlarmToolHandler("ignition.alarms.acknowledge"));
+        for (String name : java.util.List.of(
+            "ignition.perspective.views.list", "ignition.perspective.views.read",
+            "ignition.alarms.pipelines.list", "ignition.alarms.pipelines.read",
+            "ignition.projects.search", "ignition.projects.references"
+        )) {
+            register(new ProjectInspectionToolHandler(name));
+        }
+        for (String name : java.util.List.of(
+            "ignition.udts.list", "ignition.udts.read", "ignition.tags.opc.search", "ignition.tags.snapshot"
+        )) {
+            register(new TagInspectionToolHandler(name));
+        }
+        for (String name : java.util.List.of(
+            "ignition.gateway.status", "ignition.gateway.modules", "ignition.gateway.connections",
+            "ignition.gateway.logs", "ignition.gateway.diagnose"
+        )) {
+            register(new GatewayInspectionToolHandler(name));
+        }
     }
 
     public void register(ToolHandler handler) {

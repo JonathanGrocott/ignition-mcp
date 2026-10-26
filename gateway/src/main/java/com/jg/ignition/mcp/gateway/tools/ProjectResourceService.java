@@ -231,9 +231,20 @@ final class ProjectResourceService {
         ResourceBuilder builder = Resource.newBuilder()
             .setResourceCollectionName(targetProject)
             .setResourcePath(resourcePath(moduleId, resourceType, pathText))
-            .setApplicationScope(node.path("applicationScope").asInt(ApplicationScope.ALL))
+            .setApplicationScope(ProjectBundle.scope(node.path("applicationScope")))
             .setVersion(Math.max(1, node.path("version").asInt(1)))
             .setDocumentation(node.path("documentation").asText(""));
+        if (node.has("restricted")) { builder.setRestricted(node.path("restricted").asBoolean()); }
+        if (node.has("overridable")) { builder.setOverridable(node.path("overridable").asBoolean()); }
+        JsonNode attributes = node.path("attributes");
+        if (attributes.isObject()) {
+            ProjectBundle.canonical(attributes, context.objectMapper(), 0);
+            attributes.fields().forEachRemaining(entry -> {
+                if (!Set.of("lastModification", "lastModificationSignature").contains(entry.getKey())) {
+                    builder.putAttribute(entry.getKey(), com.inductiveautomation.ignition.common.gson.JsonParser.parseString(entry.getValue().toString()));
+                }
+            });
+        }
         JsonNode data = node.path("data");
         if (data.isObject()) {
             data.fields().forEachRemaining(entry -> builder.putData(entry.getKey(), dataBytes(context, entry.getValue())));

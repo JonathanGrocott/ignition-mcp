@@ -56,6 +56,10 @@ public class ProjectScriptToolHandler implements ToolHandler {
 
     @Override
     public ToolExecutionResult execute(JsonNode arguments, ToolCallContext context) {
+        if (arguments != null && "python".equals(arguments.path("scriptType").asText())
+            && (toolName.endsWith(".write") || toolName.endsWith(".delete"))) {
+            return ToolExecutionResult.error("UNSUPPORTED_TYPE", "Native Python library changes use the reviewed change workflow");
+        }
         return switch (toolName) {
             case "ignition.scripts.project.list" -> listScripts(arguments, context);
             case "ignition.scripts.project.read" -> readScript(arguments, context);
@@ -90,6 +94,7 @@ public class ProjectScriptToolHandler implements ToolHandler {
                 projectManager.find(project).ifPresent(collection ->
                     collection.getAllResources().values().stream()
                         .filter(resource -> isScriptResource(resource, scriptTypeFilter))
+                        .filter(resource -> InspectionSupport.allowed(context, project, resource))
                         .forEach(resources::add)
                 );
             }
@@ -123,6 +128,10 @@ public class ProjectScriptToolHandler implements ToolHandler {
             return ToolExecutionResult.error("Unsupported scriptType: " + scriptType);
         }
 
+        if (!context.safetyPolicy().isProjectResourceReadAllowed(context.authContext().tokenName(), project,
+            path.getModuleId(), path.getType(), path.getPath().toString())) {
+            return ToolExecutionResult.error("ALLOWLIST_BLOCKED", "Project script read blocked by allowlist");
+        }
         Optional<Resource> resource = ProjectResourceService.find(ProjectResourceService.projectManager(context), project, path);
         if (resource.isEmpty()) {
             return ToolExecutionResult.error("Project script not found: " + path);
@@ -271,6 +280,9 @@ public class ProjectScriptToolHandler implements ToolHandler {
                 resourceNode.path("resourceType").asText("")
             );
             String scriptType = scriptTypeFor(resourceType);
+            if ("python".equals(scriptType)) {
+                return ToolExecutionResult.error("UNSUPPORTED_TYPE", "Native Python library imports use the reviewed change workflow");
+            }
             if (StringUtils.isBlank(scriptType) || "legacyEventConfig".equals(scriptType)) {
                 skipped++;
                 continue;
@@ -342,6 +354,7 @@ public class ProjectScriptToolHandler implements ToolHandler {
     private static ObjectNode decodeScript(ToolCallContext context, String scriptType, Resource resource) {
         ObjectNode out = context.objectMapper().createObjectNode();
         switch (scriptType) {
+            case "python" -> resource.getData("code.py").ifPresent(bytes -> out.put("code", bytes.getBytesAsString()));
             case "library" -> {
                 resource.getData(Resource.DEFAULT_JSON_KEY).ifPresent(bytes ->
                     out.set("library", parseLibraryPayload(context, bytes.getBytesAsString()))
@@ -428,6 +441,7 @@ public class ProjectScriptToolHandler implements ToolHandler {
 
     private static ResourcePath resolveScriptResourcePath(String scriptType, String pathText) {
         return switch (StringUtils.defaultString(scriptType)) {
+            case "python" -> new ResourcePath(new ResourceType("ignition", "script-python"), requiredPath(pathText, "python"));
             case "library" -> new ResourcePath(ScriptLibrary.RESOURCE_TYPE, requiredPath(pathText, "library"));
             case "startup" -> ScriptConfig.StartupScript.RESOURCE_TYPE.rootPath();
             case "shutdown" -> ScriptConfig.ShutdownScript.RESOURCE_TYPE.rootPath();
@@ -505,6 +519,7 @@ public class ProjectScriptToolHandler implements ToolHandler {
             return "";
         }
         return switch (StringUtils.defaultString(resourceType.typeId())) {
+            case "script-python" -> "python";
             case "script-app-library" -> "library";
             case "startup" -> "startup";
             case "shutdown" -> "shutdown";

@@ -20,9 +20,8 @@ echo "Module built:"
 echo "  $MODULE_PATH"
 echo
 echo "Install it in the Ignition Gateway UI:"
-echo "  Config > System > Modules > Install or Upgrade a Module"
+echo "  Platform > System > Modules"
 echo
-echo "Then create/configure an Ignition API token and run:"
-echo "  cp .env.example .env"
-echo "  ./scripts/test_mcp_local.sh"
-echo "  ./scripts/test_mcp_extended.sh"
+echo "Then configure a scoped API token and follow:"
+echo "  docs/LOCAL_GATEWAY_TESTING.md"
+echo "The Python inspection runner is read-only; the legacy shell smoke tests can commit changes."

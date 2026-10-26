@@ -151,7 +151,21 @@ public record McpServerConfigResource(
     @Label("Named Query Max Rows")
     @FormField(FormFieldType.NUMBER)
     @DefaultValue("1000")
-    Integer namedQueryMaxRows
+    Integer namedQueryMaxRows,
+
+    @FormCategory("Safety")
+    @Label("Writes Enabled")
+    @FormField(FormFieldType.CHECKBOX)
+    @DefaultValue("false")
+    @Description("Operator-controlled gate for every committed MCP mutation. Dry-runs remain available.")
+    Boolean writesEnabled,
+
+    @FormCategory("Authorization")
+    @Label("Authorization Mode")
+    @FormField(FormFieldType.TEXT)
+    @DefaultValue("additive")
+    @Description("additive combines global and profile grants; profiles-only ignores all global grants.")
+    String authorizationMode
 ) {
 
     private static final boolean DEFAULT_ENABLED = true;
@@ -245,6 +259,11 @@ public record McpServerConfigResource(
         .build();
 
     public McpServerConfigResource {
+        writesEnabled = Boolean.TRUE.equals(writesEnabled);
+        authorizationMode = authorizationMode == null ? "additive" : authorizationMode.trim();
+        if (!List.of("additive", "profiles-only").contains(authorizationMode)) {
+            throw new IllegalArgumentException("authorizationMode must be additive or profiles-only");
+        }
         enabled = enabled == null ? DEFAULT_ENABLED : enabled;
         mountAlias = StringUtils.isBlank(mountAlias) ? DEFAULT_MOUNT_ALIAS : mountAlias;
         allowedOrigins = allowedOrigins == null ? DEFAULT_ALLOWED_ORIGINS : List.copyOf(allowedOrigins);
@@ -396,6 +415,26 @@ public record McpServerConfigResource(
             historianMaxRows,
             namedQueryMaxRows
         );
+    }
+
+    /** Existing Java callers and persisted JSON without the new fields start with commits disabled. */
+    public McpServerConfigResource(
+        Boolean enabled, String mountAlias, List<String> allowedOrigins, List<String> allowedHosts,
+        Boolean streamableEnabled, Boolean sseFallbackEnabled, Integer maxConcurrentSessions,
+        Integer maxRequestsPerMinutePerToken, Integer maxWriteOpsPerMinutePerToken, Boolean defaultDryRun,
+        Integer maxBatchWriteSize, List<String> allowedTagReadPatterns, List<String> allowedTagWritePatterns,
+        List<String> allowedAlarmAckSources, List<String> allowedNamedQueryExecutePatterns,
+        List<String> allowedProjectResourceReadPatterns, List<String> allowedProjectScriptWritePatterns,
+        List<String> allowedNamedQueryWritePatterns, List<String> allowedReadToolPatterns,
+        List<String> allowedWriteToolPatterns, List<AuthorizationProfile> authorizationProfiles,
+        String historianDefaultProvider, Integer historianMaxRows, Integer namedQueryMaxRows
+    ) {
+        this(enabled, mountAlias, allowedOrigins, allowedHosts, streamableEnabled, sseFallbackEnabled,
+            maxConcurrentSessions, maxRequestsPerMinutePerToken, maxWriteOpsPerMinutePerToken, defaultDryRun,
+            maxBatchWriteSize, allowedTagReadPatterns, allowedTagWritePatterns, allowedAlarmAckSources,
+            allowedNamedQueryExecutePatterns, allowedProjectResourceReadPatterns, allowedProjectScriptWritePatterns,
+            allowedNamedQueryWritePatterns, allowedReadToolPatterns, allowedWriteToolPatterns, authorizationProfiles,
+            historianDefaultProvider, historianMaxRows, namedQueryMaxRows, false, "additive");
     }
 
     private static int positiveOrDefault(Integer value, int defaultValue) {

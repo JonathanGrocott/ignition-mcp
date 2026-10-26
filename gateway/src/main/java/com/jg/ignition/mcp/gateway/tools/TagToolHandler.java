@@ -62,7 +62,9 @@ public class TagToolHandler implements ToolHandler {
         try {
             GatewayTagManager tagManager = context.gatewayContext().getTagManager();
             for (TagProvider provider : tagManager.getTagProviders()) {
-                providersNode.add(provider.getName());
+                if (context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), "[" + provider.getName() + "]")) {
+                    providersNode.add(provider.getName());
+                }
             }
 
             String path = arguments == null ? "" : arguments.path("path").asText("").trim();
@@ -85,9 +87,12 @@ public class TagToolHandler implements ToolHandler {
                 .get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             ArrayNode nodes = result.putArray("nodes");
             for (NodeDescription node : browseResults.getResults()) {
+                TagPath child = node.getFullPath();
+                if (child == null || child.getSource() == null || child.getSource().isBlank()) { child = tagPath.getChildPath(node.getName()); }
+                if (!context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), child.toStringFull())) { continue; }
                 ObjectNode item = nodes.addObject();
                 item.put("name", node.getName());
-                item.put("fullPath", node.getFullPath() == null ? "" : node.getFullPath().toStringFull());
+                item.put("fullPath", child.toStringFull());
                 item.put("hasChildren", node.hasChildren());
                 item.put("objectType", node.getObjectType() == null ? "" : node.getObjectType().name());
                 item.put("dataType", node.getDataType() == null ? "" : node.getDataType().name());

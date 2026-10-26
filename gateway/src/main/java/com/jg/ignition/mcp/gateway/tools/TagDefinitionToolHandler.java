@@ -221,7 +221,8 @@ public class TagDefinitionToolHandler implements ToolHandler {
             }
             List<QualityCode> deleteResults;
             try {
-                deleteResults = provider.removeTagConfigsAsync(List.of(path))
+                // Native providers sort this list while removing runtime tags.
+                deleteResults = provider.removeTagConfigsAsync(new ArrayList<>(List.of(path)))
                     .get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             }
             catch (Exception e) {
@@ -254,7 +255,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
             applyProperties(config, arguments.path("properties"));
             applyBindings(config, arguments.path("bindings"));
             applyRemovals(config, arguments.path("removeProperties"));
-            applyChildren(config, arguments.path("children"), providerArg);
+            applyChildren(config, arguments.path("children"), providerArg, context);
         }
         catch (IllegalArgumentException e) {
             return ToolExecutionResult.error(e.getMessage());
@@ -383,7 +384,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
         }
     }
 
-    private static void applyChildren(TagConfiguration parent, JsonNode children, String providerArg) {
+    private static void applyChildren(TagConfiguration parent, JsonNode children, String providerArg, ToolCallContext context) {
         if (children == null || !children.isArray()) {
             return;
         }
@@ -406,6 +407,13 @@ public class TagDefinitionToolHandler implements ToolHandler {
             if (childPath == null) {
                 throw new IllegalArgumentException("Invalid child tag path: " + rawPath);
             }
+            if (!childPath.toStringFull().startsWith(parent.getPath().toStringFull() + "/")
+                || java.util.Arrays.stream(childPath.toStringFull().split("/")).anyMatch(part -> part.equals(".") || part.equals(".."))) {
+                throw new IllegalArgumentException("Child definition must remain below its parent tag path");
+            }
+            if (!context.safetyPolicy().isTagWriteAllowed(context.authContext().tokenName(), childPath.toStringFull())) {
+                throw new IllegalArgumentException("Child definition blocked by allowlist");
+            }
             TagConfiguration child = BasicTagConfiguration.createNew(childPath);
             TagObjectType childType = resolveTagType(childNode.path("tagObjectType").asText(""));
             if (childType != null) {
@@ -414,7 +422,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
             applyProperties(child, childNode.path("properties"));
             applyBindings(child, childNode.path("bindings"));
             applyRemovals(child, childNode.path("removeProperties"));
-            applyChildren(child, childNode.path("children"), providerArg);
+            applyChildren(child, childNode.path("children"), providerArg, context);
             parent.addChild(child);
         }
     }
@@ -434,7 +442,10 @@ public class TagDefinitionToolHandler implements ToolHandler {
 
         ArrayNode children = node.putArray("children");
         for (TagConfigurationModel child : config.getChildren()) {
-            children.add(serializeConfig(context, child, normalizedPath));
+            TagPath childPath = normalizedConfigPath(child, normalizedPath);
+            if (childPath != null && context.safetyPolicy().isTagReadAllowed(context.authContext().tokenName(), childPath.toStringFull())) {
+                children.add(serializeConfig(context, child, normalizedPath));
+            }
         }
         return node;
     }
@@ -460,7 +471,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
         return serializeBoundPropertySet(context, configuration.getTagProperties());
     }
 
-    private static ObjectNode serializeBoundPropertySet(ToolCallContext context, BoundPropertySet propertySet) {
+    static ObjectNode serializeBoundPropertySet(ToolCallContext context, BoundPropertySet propertySet) {
         ObjectNode properties = context.objectMapper().createObjectNode();
         if (propertySet == null) {
             return properties;
@@ -568,7 +579,7 @@ public class TagDefinitionToolHandler implements ToolHandler {
     private static String descriptionFor(String toolName) {
         return switch (toolName) {
             case "ignition.tags.definition.read" -> "Read tag configuration definitions for Designer-visible tags";
-            case "ignition.tags.definition.write" -> "Create or edit tag definitions (allowlist + dry-run + commit)";
+            case "ignition.tags.definition.write" -> "Create, edit, upsert or delete tag and UDT definitions with nested members (allowlist + dry-run + commit)";
             default -> "Tag definition tool";
         };
     }

@@ -154,6 +154,7 @@ public class ProjectToolHandler implements ToolHandler {
                     if (!isNamedQueryResource(resource)) {
                         continue;
                     }
+                    if (!InspectionSupport.allowed(context, projectName, resource)) { continue; }
                     ResourcePath resourcePath = resource.getResourcePath();
                     String queryPath = queryPath(resourcePath);
                     if (StringUtils.isNotBlank(pathPrefix) && !queryPath.startsWith(pathPrefix)) {
@@ -220,6 +221,11 @@ public class ProjectToolHandler implements ToolHandler {
         }
         if (queryPath.isBlank()) {
             return ToolExecutionResult.error("Named query read requires path");
+        }
+
+        if (!context.safetyPolicy().isProjectResourceReadAllowed(context.authContext().tokenName(), projectName,
+            NamedQuery.RESOURCE_TYPE.moduleId(), NamedQuery.RESOURCE_TYPE.typeId(), queryPath)) {
+            return ToolExecutionResult.error("ALLOWLIST_BLOCKED", "Named query read blocked by allowlist");
         }
 
         NamedQueryLookup lookup = lookupNamedQuery(context, projectName, queryPath);

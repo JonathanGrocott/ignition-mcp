@@ -141,6 +141,25 @@ class McpRouteRegistrarIntegrationTest {
     }
 
     @Test
+    void terminatedStreamableSessionsReturnNotFoundSoClientsCanReconnect() throws Exception {
+        InvocationResult init = invoke("/mcp", HttpMethod.POST,
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+            Map.of("X-Ignition-API-Token", "tok-a"), Map.of());
+        String sessionId = init.headers().get("Mcp-Session-Id");
+        Map<String, String> headers = Map.of("X-Ignition-API-Token", "tok-a", "Mcp-Session-Id", sessionId);
+        InvocationResult hijack = invoke("/mcp", HttpMethod.POST,
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"params\":{}}",
+            Map.of("X-Ignition-API-Token", "tok-b", "Mcp-Session-Id", sessionId), Map.of());
+        assertEquals(HttpServletResponse.SC_FORBIDDEN, hijack.statusCode());
+        assertEquals(200, invoke("/mcp", HttpMethod.DELETE, "", headers, Map.of()).statusCode());
+        for (HttpMethod method : List.of(HttpMethod.POST, HttpMethod.GET, HttpMethod.DELETE)) {
+            InvocationResult expired = invoke("/mcp", method,
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\",\"params\":{}}", headers, Map.of());
+            assertEquals(HttpServletResponse.SC_NOT_FOUND, expired.statusCode());
+        }
+    }
+
+    @Test
     void sseFallbackHandshakeAndMessageFlow() throws Exception {
         InvocationResult sse = invoke(
             "/sse",
@@ -211,7 +230,9 @@ class McpRouteRegistrarIntegrationTest {
 
     @Test
     void writeBlockedByAllowlist() throws Exception {
-        configRef.set(configWith(List.of("[default]SAFE/*"), 60));
+        ObjectNode configJson = mapper.valueToTree(configWith(List.of("[default]SAFE/*"), 60));
+        configJson.put("writesEnabled", true);
+        configRef.set(mapper.treeToValue(configJson, McpServerConfigResource.class));
         InvocationResult result = invoke(
             "/mcp",
             HttpMethod.POST,
@@ -311,6 +332,8 @@ class McpRouteRegistrarIntegrationTest {
                     "maxRequestsPerMinutePerToken": 300,
                     "maxWriteOpsPerMinutePerToken": 60,
                     "defaultDryRun": true,
+                    "writesEnabled": true,
+                    "authorizationMode": "profiles-only",
                     "maxBatchWriteSize": 50,
                     "allowedOrigins": [],
                     "allowedHosts": [],
@@ -353,6 +376,8 @@ class McpRouteRegistrarIntegrationTest {
         assertTrue(body.path("updated").asBoolean());
         assertEquals("ops", body.path("config").path("authorizationProfiles").path(0).path("name").asText());
         assertTrue(configRef.get().authorizationProfiles().get(0).allowedTagReadPatterns().contains("[default]Ops/*"));
+        assertTrue(body.path("config").path("writesEnabled").asBoolean());
+        assertEquals("profiles-only", body.path("config").path("authorizationMode").asText());
     }
 
     private InvocationResult invoke(

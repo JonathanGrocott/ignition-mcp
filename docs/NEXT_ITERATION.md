@@ -1,74 +1,20 @@
-# Next Iteration Backlog
+# Roadmap
 
-This backlog tracks work remaining after the safe-core expansion implementation. Local unit tests and module packaging pass; live gateway smoke validation should be rerun against an allowlisted test gateway before release.
+The [0.4.0 changelog](../CHANGELOG.md) lists implemented features. The items below are remaining work or possible extensions, not commitments or currently supported capabilities.
 
-## Recently Implemented
+## Qualification
 
-- Added read-only project resource inventory/read tools:
-  - `ignition.projects.resource.list`
-  - `ignition.projects.resource.read`
+- Validate the final signed release artifact; complete manual Designer acceptance and broader browser/accessibility checks.
+- Qualify native Alarm Notification pipeline formats using representative exports and delivery tests. Preserve explicit unsupported-format responses until that support is established.
+- Broaden live coverage for SSE message roundtrips, named-query execution and failure/recovery behavior. Keep controlled fixture results distinct from production qualification.
 
-- Added typed project script tools:
-  - `ignition.scripts.project.list`
-  - `ignition.scripts.project.read`
-  - `ignition.scripts.project.write`
-  - `ignition.scripts.project.delete`
+## Potential extensions
 
-- Added typed named query mutation tools:
-  - `ignition.namedqueries.write`
-  - `ignition.namedqueries.delete`
+- Semantic reference resolution, including relative, inherited and dynamic references, beyond literal source matches.
+- Additional typed project-resource changes after their metadata, concurrency and recovery behavior are qualified.
+- Durable change-plan receipts and explicit recovery workflows across restarts.
+- MCP resources/prompts if there is a concrete client workflow that benefits from them.
 
-- Expanded tag definition writes:
-  - batch create/edit/upsert/delete
-  - child definitions for UDT trees
-  - fully-qualified child paths in recursive reads where parent path context is available.
+Arbitrary Gateway script execution and generic resource writes are outside the current module's supported surface. Any expansion needs a separate design for access control, bounded execution and recovery.
 
-- Added additional allowlists and tool-level authorization patterns in module config.
-
-- Added structured policy/error payloads for tool fallback errors, tool authorization denials, rate limits, resource conflicts, mutable-project checks, push failures, and safe-core allowlist blocks.
-
-- Expanded the admin UI observability panel with recent events, write allow/deny counters, top tools, and editable safe-core allowlists.
-
-- Added named per-token authorization profiles:
-  - profiles match API token names with glob patterns
-  - matching profiles can grant tool access, tag/historian access, alarm acknowledgement sources, project resource reads, project script writes, and named query execute/write targets
-  - admin status now round-trips the safe-core allowlists and profile JSON.
-
-- Added controlled read-only project resource export bundles:
-  - `ignition.projects.resource.export`
-  - exports only resources allowed by the project-resource read policy
-  - includes data payloads, filters, count, truncation metadata, and a versioned bundle format.
-
-- Added controlled typed import dry-run/apply tools:
-  - `ignition.scripts.project.import`
-  - `ignition.namedqueries.import`
-  - imports only matching typed resources from reviewed project-resource bundles
-  - dry-run by default, `commit=true` required to push through ProjectManager.
-
-- Added optional live commit smoke checks for project scripts and named queries.
-
-- Added admin UI copy buttons for endpoint/Codex/Claude snippets plus a safe-core authorization profile preset.
-
-## Priority 1 (Remaining Capability)
-
-- Add additional typed import coverage if needed:
-  - perspective views/windows/reports only if explicitly brought into safe-core scope
-  - no generic project-resource writes.
-
-## Priority 2 (Quality / Hardening)
-
-- Add integration tests for:
-  - SSE `/sse` + `/message` full round-trip (not just handshake)
-  - allowlist and rate-limit rejection codes
-  - session ownership/hijack checks across transports
-  - named-query execute commit behavior with dataset/scalar responses.
-
-- Add admin config POST round-trip tests for authorization profile JSON.
-
-## Priority 3 (Operator UX)
-
-- Gateway UI improvements:
-  - provide one-click "copy endpoint" and client snippets (Claude/Codex).
-
-- Add an optional read-only admin API-token route for status:
-  - currently `/admin/*` is session-authenticated (Gateway Web UI session).
+See [inspection contracts](INSPECTION_TOOLS.md), [change contracts](CHANGE_WORKFLOWS.md) and [validation limits](VALIDATION.md).

@@ -193,7 +193,12 @@ class TagDefinitionToolHandlerTest {
         when(gatewayContext.getTagManager()).thenReturn(tagManager);
         when(tagManager.getTagProvider("default")).thenReturn(provider);
         when(provider.removeTagConfigsAsync(any()))
-            .thenReturn(CompletableFuture.completedFuture(List.of(QualityCode.Good)));
+            .thenAnswer(invocation -> {
+                // Ignition's native provider sorts the caller-supplied list.
+                List<TagPath> paths = invocation.getArgument(0);
+                paths.sort(java.util.Comparator.comparing(TagPath::toStringFull));
+                return CompletableFuture.completedFuture(List.of(QualityCode.Good));
+            });
 
         ToolCallContext context = context(gatewayContext, committedConfig());
         TagDefinitionToolHandler handler = new TagDefinitionToolHandler("ignition.tags.definition.write");

@@ -138,7 +138,7 @@ public class McpDispatcher {
 
         ObjectNode serverInfo = result.putObject("serverInfo");
         serverInfo.put("name", "ignition-mcp");
-        serverInfo.put("version", "0.2.0-SNAPSHOT");
+        serverInfo.put("version", McpConstants.MODULE_VERSION);
         return result;
     }
 
@@ -206,6 +206,19 @@ public class McpDispatcher {
             );
         }
 
+        JsonNode arguments = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
+        if (arguments == null || arguments.isNull()) {
+            arguments = objectMapper.createObjectNode();
+        }
+        if (!arguments.isObject()) {
+            throw new RpcException(McpConstants.JSONRPC_INVALID_PARAMS, "params.arguments must be an object", null);
+        }
+        if (definition.mutating() && !context.safetyPolicy().isDryRun(arguments) && !context.safetyPolicy().writesEnabled()) {
+            context.auditLogger().logWriteAttempt(context.authContext().tokenName(), name, false, false, "writes-disabled");
+            throw new RpcException(JSONRPC_PERMISSION_DENIED, "Gateway operator has not enabled MCP writes",
+                objectMapper.createObjectNode().put("code", "WRITES_DISABLED").put("tool", name));
+        }
+
         if (definition.mutating() && !context.safetyPolicy().allowWrite(context.authContext().tokenName())) {
             throw new RpcException(
                 JSONRPC_RATE_LIMIT,
@@ -214,14 +227,6 @@ public class McpDispatcher {
                     .put("code", "WRITE_RATE_LIMITED")
                     .put("tool", definition.name())
             );
-        }
-
-        JsonNode arguments = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
-        if (arguments == null || arguments.isNull()) {
-            arguments = objectMapper.createObjectNode();
-        }
-        if (!arguments.isObject()) {
-            throw new RpcException(McpConstants.JSONRPC_INVALID_PARAMS, "params.arguments must be an object", null);
         }
 
         long started = System.currentTimeMillis();

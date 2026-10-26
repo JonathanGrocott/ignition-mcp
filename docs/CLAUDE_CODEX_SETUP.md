@@ -1,55 +1,72 @@
-# Ignition MCP Client Setup (Claude + Codex)
+# Connect Codex or Claude Code
 
-This guide connects MCP-capable clients to the Ignition gateway-hosted MCP server in this module.
+For **Ignition MCP 0.4.0**. First complete the [User Guide](USER_GUIDE.md): install the signed module, create an Ignition API key, and save a matching token profile. Start with Read-only and Profiles only.
 
-## 1) Prerequisites
+## Endpoint and credentials
 
-- Ignition module is installed and enabled.
-- You can reach the MCP route:
-  - `http://<gateway-host>:<gateway-port>/data/<mount-alias>/mcp`
-  - Default: `http://localhost:8088/data/ignition-mcp/mcp`
-- You created an Ignition API token.
-- Optional but recommended: open Gateway UI page at `Services > Ignition MCP > Configuration` and verify:
-  - `enabled = true`
-  - `streamableEnabled = true`
-  - `allowedHosts` / `allowedOrigins` include your client host/origin if set.
-  - `defaultDryRun` and write allowlists match your intended write behavior.
+Copy the **saved endpoint** from the Gateway's Overview or Connection section. The default is:
 
-Notes:
-
-- MCP is served on the same HTTP/HTTPS port as the Ignition gateway (no separate MCP port in this version).
-- Admin routes (`/data/<alias>/admin/*`) are for Gateway Web UI sessions, not API tokens.
-- For build/install/smoke-test steps, see [Local Gateway Testing](LOCAL_GATEWAY_TESTING.md).
-
-Set your token in an environment variable:
-
-```bash
-export IGNITION_MCP_TOKEN="<your_token_here>"
+```text
+http://localhost:8088/data/ignition-mcp/mcp
 ```
 
-## 2) Claude Code
+Use your actual host, port, HTTPS configuration and alias. The development screenshots use port **6890**. `localhost` refers to the computer running the MCP client; remote/cloud clients need a reachable Gateway address. MCP uses Ignition's existing port.
 
-`claude mcp add` supports HTTP transport and custom headers.
+Supply the full `token-name:secret` as either `X-Ignition-API-Token` or a Bearer token. The profile contains only the name. Gateway browser login and MCP authentication are separate. A key requiring a secure channel needs HTTPS; preserve its security requirements.
+
+Keep real credentials in private client configuration or environment variables. Never commit them to the project, paste them into permission profiles, or include them in URLs. The module does not implement OAuth; use the HTTP header configuration below.
+
+## Codex desktop
+
+Codex shares MCP configuration with its CLI through `~/.codex/config.toml`. In the app's MCP settings, configure an HTTP server with the saved Gateway URL and authentication header. If using TOML, a private user-level entry can look like:
+
+```toml
+[mcp_servers.ignition-mcp]
+url = "http://localhost:8088/data/ignition-mcp/mcp"
+http_headers = { "X-Ignition-API-Token" = "REPLACE_WITH_TOKEN_NAME:REPLACE_WITH_SECRET" }
+```
+
+Replace the example credential locally. Merge this section into existing configuration; do not overwrite other servers or settings. Keep the file private. Do not put a literal credential in a repository's `.codex/config.toml`.
+
+This private-header option is useful when the desktop app is already running. Exporting a variable in a terminal does **not** populate the environment of an already-running desktop process. If your app launch environment already supplies the credential, use this alternative instead of the literal header:
+
+```toml
+[mcp_servers.ignition-mcp]
+url = "http://localhost:8088/data/ignition-mcp/mcp"
+bearer_token_env_var = "IGNITION_API_TOKEN"
+```
+
+Use one entry for that server name. [Codex's MCP documentation](https://developers.openai.com/codex/mcp) describes URL, header and environment-based configuration.
+
+## Codex CLI
+
+Set `IGNITION_API_TOKEN` privately in the environment of the process that will run Codex. Then register the endpoint:
+
+```bash
+codex mcp add ignition-mcp \
+  --url http://localhost:8088/data/ignition-mcp/mcp \
+  --bearer-token-env-var IGNITION_API_TOKEN
+codex mcp list
+```
+
+The CLI writes the server configuration; it does not make the variable available to a separate desktop process. Configuration listing proves registration, not a successful authenticated tool call.
+
+## Claude Code
+
+With `IGNITION_API_TOKEN` already set in the terminal environment:
 
 ```bash
 claude mcp add \
   --transport http \
   --scope user \
-  --header "X-Ignition-API-Token: ${IGNITION_MCP_TOKEN}" \
+  --header "X-Ignition-API-Token: ${IGNITION_API_TOKEN}" \
   ignition-mcp \
   http://localhost:8088/data/ignition-mcp/mcp
 ```
 
-Useful commands:
+The shell expands this header when registering the server; treat the resulting user configuration as private. Use `/mcp` inside Claude Code to inspect the connection.
 
-```bash
-claude mcp list
-claude mcp get ignition-mcp
-```
-
-If you changed `mountAlias`, update the URL path accordingly.
-
-Project JSON alternative (`.mcp.json` in your repo root):
+For a project configuration that keeps the credential outside the file, `.mcp.json` supports environment substitution:
 
 ```json
 {
@@ -57,77 +74,40 @@ Project JSON alternative (`.mcp.json` in your repo root):
     "ignition-mcp": {
       "type": "http",
       "url": "http://localhost:8088/data/ignition-mcp/mcp",
-      "headers": {
-        "X-Ignition-API-Token": "<your_token_here>"
-      }
+      "headers": {"X-Ignition-API-Token": "${IGNITION_API_TOKEN}"}
     }
   }
 }
 ```
 
-You can also use bearer auth instead:
+Set that variable in Claude Code's process environment. Follow its project-server approval prompts. See [Claude Code's MCP documentation](https://code.claude.com/docs/en/mcp) for HTTP servers, scopes and variable expansion.
 
-```json
-{
-  "mcpServers": {
-    "ignition-mcp": {
-      "type": "http",
-      "url": "http://localhost:8088/data/ignition-mcp/mcp",
-      "headers": {
-        "Authorization": "Bearer <your_token_here>"
-      }
-    }
-  }
-}
-```
+## Reload without interrupting other chats
 
-## 3) Codex
+**Gateway permission changes do not require restarting Codex.** Save them in the Gateway; subsequent calls are evaluated against the current policy.
 
-Codex supports streamable HTTP MCP servers through `codex mcp add --url`.
-Use bearer auth:
+For a new/changed client server entry, use the client's MCP reload, reconnect or server-refresh control when available. After reloading, check that the **active chat** can actually see the `ignition.*` tools, then make a read call. Control names and live-refresh behavior depend on the client version. A busy desktop app need not be restarted just to change a Gateway grant.
 
-```bash
-codex mcp add ignition-mcp \
-  --url http://localhost:8088/data/ignition-mcp/mcp \
-  --bearer-token-env-var IGNITION_MCP_TOKEN
-```
+If a chat still lacks the server's tools, do not report success from a separate CLI probe as proof that chat has reloaded. Check the client connection and its active catalog. A client without live reload may need a new session when convenient; that is a client limitation, separate from the Gateway endpoint. Preserve other running chats.
 
-Useful commands:
+Example first prompt, using your real paths:
+
+> Use ignition-mcp to read [default]MCP/Speed, including quality and timestamp. Read the MCP/Demo Python library in MyProject. Do not make changes.
+
+The expected tool calls are documented in the [User Guide](USER_GUIDE.md#5-make-your-first-reads). The module reads source; it does not execute the Python function.
+
+## Direct connection check
+
+With `IGNITION_API_TOKEN` already set, this authenticates and initializes without calling a resource tool:
 
 ```bash
-codex mcp list
-codex mcp get ignition-mcp
+curl --silent --show-error --include \
+  'http://localhost:8088/data/ignition-mcp/mcp' \
+  -H "X-Ignition-API-Token: ${IGNITION_API_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"connection-check","version":"1"}}}'
 ```
 
-Notes:
+Expect HTTP 200, a JSON-RPC `result`, server identity and an `Mcp-Session-Id` response header. Initialization/catalog access does not prove resource authorization. Use the returned session ID for later calls and delete it when finished; see [protocol examples](MCP_REFERENCE.md). Avoid verbose request logging that exposes authentication headers.
 
-- This module accepts both:
-  - `X-Ignition-API-Token: <token>`
-  - `Authorization: Bearer <token>`
-- Codex bearer token mode maps directly to the second option.
-
-## 4) Quick Connectivity Test
-
-You can validate the endpoint before configuring a client:
-
-```bash
-curl -X POST "http://localhost:8088/data/ignition-mcp/mcp" \
-  -H "X-Ignition-API-Token: ${IGNITION_MCP_TOKEN}" \
-  -H "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-```
-
-Expected: HTTP `200` with `jsonrpc` initialize result.
-
-## 5) Troubleshooting
-
-- `401 Unauthorized`:
-  - token is invalid or missing
-  - header format incorrect
-- `403 Forbidden`:
-  - request blocked by host/origin allowlist settings
-- `503 Service Unavailable`:
-  - MCP module disabled in config
-- Tool calls blocked:
-  - check allowlists (`allowedTagWritePatterns`, `allowedAlarmAckSources`, `allowedNamedQueryExecutePatterns`)
-  - check rate limits and `defaultDryRun` behavior
+For failures, use the [troubleshooting table](USER_GUIDE.md#9-troubleshoot). Check transport reachability, full token value, Ignition key requirements, profile/token-name matching, tool grants and target scopes in that order.

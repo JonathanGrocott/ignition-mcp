@@ -28,13 +28,17 @@ public class SafetyPolicyEngine {
         return writeRateLimiter.tryAcquire(tokenKey, config.maxWriteOpsPerMinutePerToken());
     }
 
+    public boolean writesEnabled() {
+        return Boolean.TRUE.equals(configSupplier.get().writesEnabled());
+    }
+
     public boolean isTagReadAllowed(String tagPath) {
         return isTagReadAllowed(null, tagPath);
     }
 
     public boolean isTagReadAllowed(String tokenName, String tagPath) {
         McpServerConfigResource config = configSupplier.get();
-        return matchesAny(config.allowedTagReadPatterns(), tagPath)
+        return matchesGlobal(config, config.allowedTagReadPatterns(), tagPath)
             || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.TAG_READ), tagPath);
     }
 
@@ -44,7 +48,7 @@ public class SafetyPolicyEngine {
 
     public boolean isTagWriteAllowed(String tokenName, String tagPath) {
         McpServerConfigResource config = configSupplier.get();
-        return matchesAny(config.allowedTagWritePatterns(), tagPath)
+        return matchesGlobal(config, config.allowedTagWritePatterns(), tagPath)
             || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.TAG_WRITE), tagPath);
     }
 
@@ -56,8 +60,8 @@ public class SafetyPolicyEngine {
             tokenName,
             mutating ? ProfilePatternKind.WRITE_TOOL : ProfilePatternKind.READ_TOOL
         );
-        return matchesAny(patterns, toolName)
-            || matchesAny(patterns, actorToolValue(tokenName, toolName))
+        return matchesGlobal(config, patterns, toolName)
+            || matchesGlobal(config, patterns, actorToolValue(tokenName, toolName))
             || matchesAny(profilePatterns, toolName);
     }
 
@@ -67,7 +71,7 @@ public class SafetyPolicyEngine {
 
     public boolean isAlarmAckAllowed(String tokenName, String source) {
         McpServerConfigResource config = configSupplier.get();
-        return matchesAny(config.allowedAlarmAckSources(), source)
+        return matchesGlobal(config, config.allowedAlarmAckSources(), source)
             || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.ALARM_ACK), source);
     }
 
@@ -79,8 +83,8 @@ public class SafetyPolicyEngine {
         McpServerConfigResource config = configSupplier.get();
         String fullPath = projectScopedPath(projectName, queryPath);
         List<String> profilePatterns = profilePatterns(config, tokenName, ProfilePatternKind.NAMED_QUERY_EXECUTE);
-        return matchesAny(config.allowedNamedQueryExecutePatterns(), fullPath)
-            || matchesAny(config.allowedNamedQueryExecutePatterns(), queryPath)
+        return matchesGlobal(config, config.allowedNamedQueryExecutePatterns(), fullPath)
+            || matchesGlobal(config, config.allowedNamedQueryExecutePatterns(), queryPath)
             || matchesAny(profilePatterns, fullPath)
             || matchesAny(profilePatterns, queryPath);
     }
@@ -93,8 +97,8 @@ public class SafetyPolicyEngine {
         McpServerConfigResource config = configSupplier.get();
         String fullPath = projectScopedPath(projectName, queryPath);
         List<String> profilePatterns = profilePatterns(config, tokenName, ProfilePatternKind.NAMED_QUERY_WRITE);
-        return matchesAny(config.allowedNamedQueryWritePatterns(), fullPath)
-            || matchesAny(config.allowedNamedQueryWritePatterns(), queryPath)
+        return matchesGlobal(config, config.allowedNamedQueryWritePatterns(), fullPath)
+            || matchesGlobal(config, config.allowedNamedQueryWritePatterns(), queryPath)
             || matchesAny(profilePatterns, fullPath)
             || matchesAny(profilePatterns, queryPath);
     }
@@ -112,7 +116,7 @@ public class SafetyPolicyEngine {
     ) {
         McpServerConfigResource config = configSupplier.get();
         String fullPath = projectResourcePath(projectName, moduleId, typeId, resourcePath);
-        return matchesAny(config.allowedProjectResourceReadPatterns(), fullPath)
+        return matchesGlobal(config, config.allowedProjectResourceReadPatterns(), fullPath)
             || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.PROJECT_RESOURCE_READ), fullPath);
     }
 
@@ -124,8 +128,8 @@ public class SafetyPolicyEngine {
         McpServerConfigResource config = configSupplier.get();
         String fullPath = projectScopedPath(projectName, scriptPath);
         List<String> profilePatterns = profilePatterns(config, tokenName, ProfilePatternKind.PROJECT_SCRIPT_WRITE);
-        return matchesAny(config.allowedProjectScriptWritePatterns(), fullPath)
-            || matchesAny(config.allowedProjectScriptWritePatterns(), scriptPath)
+        return matchesGlobal(config, config.allowedProjectScriptWritePatterns(), fullPath)
+            || matchesGlobal(config, config.allowedProjectScriptWritePatterns(), scriptPath)
             || matchesAny(profilePatterns, fullPath)
             || matchesAny(profilePatterns, scriptPath);
     }
@@ -216,6 +220,10 @@ public class SafetyPolicyEngine {
 
     private boolean matchesAny(List<String> patterns, String value) {
         return matchesAnyStatic(patterns, value);
+    }
+
+    private boolean matchesGlobal(McpServerConfigResource config, List<String> patterns, String value) {
+        return !"profiles-only".equals(config.authorizationMode()) && matchesAny(patterns, value);
     }
 
     private enum ProfilePatternKind {

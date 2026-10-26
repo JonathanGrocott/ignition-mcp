@@ -135,6 +135,10 @@ public class McpRouteRegistrar {
         }
 
         String sessionId = resolveSessionId(requestContext).orElseGet(() -> createSession(authContext, "streamable", config));
+        if (!sessionManager.exists(sessionId)) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return simpleError("session expired; initialize a new session");
+        }
         if (!sessionManager.isOwnedBy(sessionId, authContext.actorFingerprint())) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return simpleError("session is not owned by caller");
@@ -196,6 +200,10 @@ public class McpRouteRegistrar {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return "event: error\ndata: {\"message\":\"sessionId required\"}\n\n";
         }
+        if (!sessionManager.exists(sessionId.get())) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return "event: error\ndata: {\"message\":\"session expired; initialize a new session\"}\n\n";
+        }
         if (!sessionManager.isOwnedBy(sessionId.get(), authContext.actorFingerprint())) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return "event: error\ndata: {\"message\":\"session not owned by caller\"}\n\n";
@@ -220,6 +228,10 @@ public class McpRouteRegistrar {
         if (sessionId.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return simpleError("sessionId required");
+        }
+        if (!sessionManager.exists(sessionId.get())) {
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return simpleError("session expired; initialize a new session");
         }
         if (!sessionManager.isOwnedBy(sessionId.get(), authContext.actorFingerprint())) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -538,6 +550,8 @@ public class McpRouteRegistrar {
         out.put("maxRequestsPerMinutePerToken", config.maxRequestsPerMinutePerToken());
         out.put("maxWriteOpsPerMinutePerToken", config.maxWriteOpsPerMinutePerToken());
         out.put("defaultDryRun", config.defaultDryRun());
+        out.put("writesEnabled", config.writesEnabled());
+        out.put("authorizationMode", config.authorizationMode());
         out.put("maxBatchWriteSize", config.maxBatchWriteSize());
         out.set("allowedTagReadPatterns", objectMapper.valueToTree(config.allowedTagReadPatterns()));
         out.set("allowedTagWritePatterns", objectMapper.valueToTree(config.allowedTagWritePatterns()));

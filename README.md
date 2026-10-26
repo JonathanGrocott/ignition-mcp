@@ -1,522 +1,73 @@
-# ignition-mcp
+# Ignition MCP
 
-Gateway-scoped Ignition 8.3 module that exposes a tools-only MCP server over Ignition data routes.
+A native Ignition 8.3 Gateway module that lets MCP clients inspect Gateway data and make explicitly authorized changes. It runs inside Ignition and uses the Gateway's existing HTTP/HTTPS port.
 
-## Status
+**Start with the [illustrated User Guide](docs/USER_GUIDE.md).** It covers installation, API keys, read-only access, client connection, writes, change previews and troubleshooting.
 
-Implemented V1 surface:
+![Ignition MCP Overview in the Gateway](docs/images/gateway/overview.jpg)
 
-- Transport routes: `POST/GET/DELETE /mcp`, `GET /sse`, `POST /message`
-- Auth: Ignition API token validation on every route
-- Tool contracts:
-  - `ignition.tags.browse`
-  - `ignition.tags.read`
-  - `ignition.tags.write`
-  - `ignition.tags.definition.read`
-  - `ignition.tags.definition.write`
-  - `ignition.projects.list`
-  - `ignition.projects.resource.list`
-  - `ignition.projects.resource.read`
-  - `ignition.projects.resource.export`
-  - `ignition.scripts.project.list`
-  - `ignition.scripts.project.read`
-  - `ignition.scripts.project.write`
-  - `ignition.scripts.project.delete`
-  - `ignition.scripts.project.import`
-  - `ignition.namedqueries.list`
-  - `ignition.namedqueries.read`
-  - `ignition.namedqueries.execute`
-  - `ignition.namedqueries.write`
-  - `ignition.namedqueries.delete`
-  - `ignition.namedqueries.import`
-  - `ignition.historian.query`
-  - `ignition.alarms.list`
-  - `ignition.alarms.acknowledge`
-- Safety controls:
-  - request and write rate limits (per token)
-  - tag/alarm/named-query allowlist checks
-  - dry-run default for mutating tools (`commit=true` required to commit)
-- Persisted gateway config resource (`mcp-config`) via `NamedResourceHandler`
+## What it can do
 
-## Build
+Ignition MCP **0.4.0** exposes **42 tools**:
 
-Prereqs:
+- Browse/read tags, inspect definitions and UDTs, search OPC mappings and collect bounded snapshots.
+- Inspect Perspective views, stored bindings/events, project resources and literal source references.
+- Read Gateway status, installed modules, connection status and bounded logs.
+- Inspect named queries, query tag history and list alarms, subject to permissions.
+- Inspect portable JSON bundles and preview/apply supported Python-library and named-query resource changes with conflict checks and readback verification.
+- Perform scoped legacy tag, definition, script, named-query and alarm operations where supported.
 
-- Java 17
-- Access to Ignition 8.3 Maven repos
+See the complete [Tool Reference](docs/TOOL_REFERENCE.md) for names, access classes and limitations. There is no arbitrary Gateway script execution tool. This is a tools-only MCP server; it does not expose MCP resources/prompts. The Gateway UI configures access and displays activity; change previews are returned to the MCP client.
 
-Commands:
+## Quick start
+
+1. Install the **signed** `ignition-mcp.modl` through **Platform → System → Modules** on an Ignition 8.3 development Gateway.
+2. Create an API key under **Platform → Security → API Keys**.
+3. Open **Services → Ignition MCP → Configuration**. Under **Access & writes**, start with **Read-only**, choose **Profiles only**, and add a reader profile matching the token name and intended tag/project paths. Click **Save changes**.
+4. Copy the endpoint from **Overview** or **Connection** and configure your [Codex or Claude Code client](docs/CLAUDE_CODEX_SETUP.md).
+5. Make a scoped read call. For writes, follow the [write-access and preview workflow](docs/USER_GUIDE.md#6-allow-writes).
+
+The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your actual Gateway host, port, HTTPS configuration and saved alias.
+
+**Upgrade behavior:** `writesEnabled` defaults to **false**, including older persisted configurations missing that field. An operator must explicitly allow writes before a committing MCP call can succeed. Global and profile grants combine in the compatibility-default `additive` mode; `profiles-only` ignores all global grants. See [migration and change semantics](docs/CHANGE_WORKFLOWS.md).
+
+## Documentation
+
+| Guide | Audience / purpose |
+|---|---|
+| [User Guide](docs/USER_GUIDE.md) | Illustrated installation, first read, scoped permissions, writes and troubleshooting |
+| [Gateway UI](docs/GATEWAY_UI.md) | Section-by-section UI, visual profiles, themes, drafts and save behavior |
+| [Client Setup](docs/CLAUDE_CODEX_SETUP.md) | Codex desktop/CLI and Claude Code configuration, authentication and connection checks |
+| [Tool Reference](docs/TOOL_REFERENCE.md) | All 42 tools, required grant families and supported write surfaces |
+| [Change Workflows](docs/CHANGE_WORKFLOWS.md) | Bundle format, preview/apply contracts, expiry, conflicts and uncertain outcomes |
+| [Inspection Tools](docs/INSPECTION_TOOLS.md) | Detailed inspection arguments, work budgets, partial results and unsupported formats |
+| [MCP Protocol Examples](docs/MCP_REFERENCE.md) | HTTP routes, session headers and JSON-RPC examples |
+| [Local Gateway Testing](docs/LOCAL_GATEWAY_TESTING.md) | Developer setup and repeatable tests; distinguish read-only from committing runners |
+| [Manual Acceptance Workflow](docs/DEVELOPMENT_TEST_WORKFLOW.md) | Portable synthetic fixture setup and manual Designer acceptance steps |
+| [Validation evidence](docs/VALIDATION.md) | Automated/live results and qualification limits for the release features |
+
+## Build from source
+
+These docs target the **0.4.0 release**. Before packaging it, set `moduleVersion` in `build.gradle.kts` to `0.4.0`; the release tag must match (`v0.4.0`). Distribute the signed release artifact, not a development snapshot.
+
+End users installing a built module do not need the build toolchain. Developers need Java 17 and access to the Ignition Maven repositories:
 
 ```bash
-./gradlew test
-./gradlew clean zipModule checksumModl
+./gradlew test zipModule checksumModl
+node --test gateway/src/test/js/mcp-admin.test.cjs
 ./scripts/sign-module.sh
 ```
 
-Build output:
+Outputs:
 
-- unsigned intermediate module: `build/ignition-mcp.unsigned.modl`
-- signed module: `build/ignition-mcp.modl`
-- checksum metadata: `build/checksum/checksum.json`
+- Signed installable module: `build/ignition-mcp.modl`
+- Unsigned intermediate: `build/ignition-mcp.unsigned.modl`
+- Packaging/checksum metadata: `build/checksum/checksum.json`
 
-If signing material does not exist yet, `./scripts/sign-module.sh` creates a simple self-signed certificate under `certs/`; those files are ignored by git. Keep the same generated files if you want future local builds to use the same certificate, so Ignition users only need to accept that certificate once.
+`checksumModl` verifies that the packaged common/Gateway JARs match the current build outputs. Signing uses the existing local signing material; the helper creates a self-signed development certificate when none is present. Keep private signing material out of source control. See [certificate guidance](certs/README.md).
 
-Verify the module contains the signing payload:
+The GitHub build/release workflows build, test, sign and package artifacts. Existing local validation covers the development builds used to implement these features; final release-artifact validation and publication are separate steps. See the [validation summary](docs/VALIDATION.md) for the exact builds tested.
 
-```bash
-unzip -l build/ignition-mcp.modl | grep -E 'certificates.p7b|signatures.properties'
-```
+## Supported and unverified boundaries
 
-## GitHub Actions
-
-This repo includes CI/CD workflows similar to your other Ignition module projects:
-
-- `.github/workflows/build.yml`
-  - Runs on pushes/PRs to `main|master|develop`
-  - Builds and tests the module
-  - Signs and uploads `.modl` + checksum artifacts
-- `.github/workflows/release.yml`
-  - Runs on version tags `v*` (and manual dispatch)
-  - Builds/tests, signs the module, creates checksum file, and publishes a GitHub Release with module artifacts
-
-## Install On Ignition Gateway
-
-1. Copy the built module file into your Ignition modules directory.
-2. Restart the Ignition gateway service.
-3. Confirm module status in Gateway Web UI (`Config > Modules`).
-
-Example on macOS/Linux:
-
-```bash
-cp build/ignition-mcp.modl /usr/local/ignition/user-lib/modules/ignition-mcp.modl
-sudo systemctl restart ignition
-```
-
-## Module Mount Path
-
-Module alias defaults to:
-
-- `/data/ignition-mcp/*`
-
-Routes:
-
-- `POST /data/ignition-mcp/mcp`
-- `GET /data/ignition-mcp/mcp`
-- `DELETE /data/ignition-mcp/mcp`
-- `GET /data/ignition-mcp/sse`
-- `POST /data/ignition-mcp/message`
-
-Gateway admin routes (Gateway Web UI session required):
-
-- `GET /data/ignition-mcp/admin/status`
-- `GET /data/ignition-mcp/admin/config`
-- `POST /data/ignition-mcp/admin/config`
-
-## Auth
-
-MCP transport routes require:
-
-- `X-Ignition-API-Token: <token>` header, or
-- `Authorization: Bearer <token>` header
-
-Admin routes use authenticated Ignition Gateway Web UI sessions and CSRF protection.
-
-In Ignition 8.3, API token capabilities are typically ACCESS-scoped. This module still distinguishes tool intent (`READ` vs `WRITE`) and enforces write safety with:
-
-- allowlist checks (`allowedTagWritePatterns`, `allowedAlarmAckSources`)
-- dry-run default (`defaultDryRun`)
-- per-token write rate limiting (`maxWriteOpsPerMinutePerToken`)
-
-## Session Header
-
-For streamable and SSE fallback session continuity:
-
-- `Mcp-Session-Id`
-
-You can provide it as a request header or query parameter `sessionId`.
-
-## Example MCP Calls
-
-Initialize:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "initialize",
-  "params": {}
-}
-```
-
-List tools:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "tools/list",
-  "params": {}
-}
-```
-
-Call a mutating tool in dry-run mode:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 3,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.tags.write",
-    "arguments": {
-      "writes": [
-        { "path": "[default]MCP/Setpoint", "value": 42 }
-      ]
-    }
-  }
-}
-```
-
-Commit mutation:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 4,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.tags.write",
-    "arguments": {
-      "commit": true,
-      "writes": [
-        { "path": "[default]MCP/Setpoint", "value": 42 }
-      ]
-    }
-  }
-}
-```
-
-Read tag definitions (Designer-visible config):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 5,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.tags.definition.read",
-    "arguments": {
-      "paths": ["[default]MCP/Setpoint"],
-      "recursive": false
-    }
-  }
-}
-```
-
-List configured designer projects:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 7,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.projects.list",
-    "arguments": {
-      "includeNamedQueryCounts": true
-    }
-  }
-}
-```
-
-List named queries for one project:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 8,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.namedqueries.list",
-    "arguments": {
-      "project": "samplequickstart"
-    }
-  }
-}
-```
-
-Read one named query (SQL and parameters):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 9,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.namedqueries.read",
-    "arguments": {
-      "project": "samplequickstart",
-      "path": "Reports/Audit Log"
-    }
-  }
-}
-```
-
-Execute one named query (dry-run default):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 10,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.namedqueries.execute",
-    "arguments": {
-      "project": "samplequickstart",
-      "path": "Ignition 101/Data Entry/Tank List"
-    }
-  }
-}
-```
-
-Create/edit a named query definition (dry-run by default, `commit=true` to push):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 11,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.namedqueries.write",
-    "arguments": {
-      "project": "samplequickstart",
-      "path": "Reports/New Audit Query",
-      "type": "Query",
-      "database": "Sample_SQLite_Database",
-      "query": "SELECT 1",
-      "parameters": []
-    }
-  }
-}
-```
-
-List project resources:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 12,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.projects.resource.list",
-    "arguments": {
-      "project": "samplequickstart",
-      "moduleId": "ignition",
-      "includeData": false
-    }
-  }
-}
-```
-
-Export an allowlisted project resource bundle:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 121,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.projects.resource.export",
-    "arguments": {
-      "project": "samplequickstart",
-      "moduleId": "ignition",
-      "pathPrefix": "MCP",
-      "maxResources": 250
-    }
-  }
-}
-```
-
-Dry-run import project scripts or named queries from a reviewed export bundle:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 122,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.scripts.project.import",
-    "arguments": {
-      "targetProject": "samplequickstart",
-      "bundle": {
-        "resources": [
-          {
-            "moduleId": "ignition",
-            "resourceType": "script-app-library",
-            "path": "MCP/Shared",
-            "applicationScope": 7,
-            "version": 1,
-            "data": {
-              "resource.json": {
-                "encoding": "utf-8",
-                "value": "{\"scripts\":{\"MCP/Shared\":\"print 'hello'\"}}"
-              }
-            }
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-Create/edit a project startup script:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 13,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.scripts.project.write",
-    "arguments": {
-      "project": "samplequickstart",
-      "scriptType": "startup",
-      "code": "print 'startup from MCP'"
-    }
-  }
-}
-```
-
-Create/edit tag definition (requires write permission and `commit=true`):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 10,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.tags.definition.write",
-    "arguments": {
-      "operation": "upsert",
-      "path": "[default]MCP/NewTag",
-      "tagObjectType": "AtomicTag",
-      "properties": {
-        "enabled": true,
-        "documentation": "Created by MCP"
-      },
-      "commit": true
-    }
-  }
-}
-```
-
-Create a UDT type with a child member:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 14,
-  "method": "tools/call",
-  "params": {
-    "name": "ignition.tags.definition.write",
-    "arguments": {
-      "operation": "create",
-      "path": "[default]_types_/MCP/Pump",
-      "tagObjectType": "UdtType",
-      "children": [
-        {
-          "name": "Speed",
-          "tagObjectType": "AtomicTag",
-          "properties": {
-            "enabled": true,
-            "documentation": "UDT member created by MCP"
-          }
-        }
-      ],
-      "commit": true
-    }
-  }
-}
-```
-
-## Config Resource Fields
-
-Single profile fields are implemented in `McpServerConfigResource`:
-
-- `enabled`
-- `mountAlias`
-- `allowedOrigins`
-- `allowedHosts`
-- `streamableEnabled`
-- `sseFallbackEnabled`
-- `maxConcurrentSessions`
-- `maxRequestsPerMinutePerToken`
-- `maxWriteOpsPerMinutePerToken`
-- `defaultDryRun`
-- `maxBatchWriteSize`
-- `allowedTagReadPatterns`
-- `allowedTagWritePatterns`
-- `allowedAlarmAckSources`
-- `allowedNamedQueryExecutePatterns`
-- `allowedProjectResourceReadPatterns`
-- `allowedProjectScriptWritePatterns`
-- `allowedNamedQueryWritePatterns`
-- `allowedReadToolPatterns`
-- `allowedWriteToolPatterns`
-- `authorizationProfiles`
-- `historianDefaultProvider`
-- `historianMaxRows`
-- `namedQueryMaxRows`
-
-`authorizationProfiles` adds reusable per-token grants on top of the global allowlists. A profile matches API token names with `tokenPatterns`; matching profiles can grant tool access and safe-core target allowlists without opening those targets globally:
-
-```json
-[
-  {
-    "name": "ops-mcp-writer",
-    "tokenPatterns": ["ops-*"],
-    "allowedReadToolPatterns": ["ignition.tags.*", "ignition.projects.*"],
-    "allowedWriteToolPatterns": ["ignition.tags.write", "ignition.tags.definition.write"],
-    "allowedTagReadPatterns": ["[default]Ops/*"],
-    "allowedTagWritePatterns": ["[default]Ops/MCP/*", "[default]_types_/Ops/MCP/*"],
-    "allowedAlarmAckSources": ["prov:ops/*"],
-    "allowedNamedQueryExecutePatterns": ["OpsProject/Reports/*"],
-    "allowedProjectResourceReadPatterns": ["OpsProject/ignition/*/*"],
-    "allowedProjectScriptWritePatterns": ["OpsProject/library/MCP/*"],
-    "allowedNamedQueryWritePatterns": ["OpsProject/MCP/*"]
-  }
-]
-```
-
-## Notes
-
-- This is a gateway-only V1 implementation (no Designer/Vision scope).
-- Gateway UI page is available under `Services > Ignition MCP > Configuration`.
-- Admin UI includes live observability panels (tool calls, success/error ratio, write allow/deny counts, top tools, recent events).
-- MCP traffic uses the existing Ignition web server port (same port as Gateway HTTP/HTTPS). A separate MCP port is not exposed in this version.
-- Historian and alarm integrations are scaffolded behind the final MCP contract and safety checks; complete project-specific binding can be expanded per gateway data model/runtime APIs.
-
-## Client Setup
-
-- See [Claude and Codex setup guide](docs/CLAUDE_CODEX_SETUP.md).
-- Next planned capabilities: [next iteration backlog](docs/NEXT_ITERATION.md).
-
-## Smoke Test
-
-Use the provided scripts to run MCP smoke tests:
-
-```bash
-./scripts/build_local_module.sh
-./scripts/test_mcp_local.sh
-./scripts/test_mcp_extended.sh
-```
-
-For a full local gateway checklist, see [Local Gateway Testing](docs/LOCAL_GATEWAY_TESTING.md).
-
-Token source order in the script:
-
-- `IGNITION_API_TOKEN`
-- `X_IGNITION_API_TOKEN`
-- `API_TOKEN`
-- `TOKEN`
+The code compiles against SDK 8.3.3; selected native integrations and the UI were exercised on Gateway 8.3.9. All 42 tools passed local fixture acceptance against the final signed 0.4.0 artifact, including native binary pipeline configuration readback. These results do not qualify every Ignition patch, custom pipeline body codec, production workload or browser. Reference search is literal rather than a complete dependency resolver, and source readback verifies saved content rather than Python execution or notification delivery. See the validation summary and [changelog](CHANGELOG.md).

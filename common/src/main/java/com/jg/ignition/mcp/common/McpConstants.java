@@ -2,6 +2,7 @@ package com.jg.ignition.mcp.common;
 
 public final class McpConstants {
     public static final String MODULE_ID = "com.jg.ignition.mcp";
+    public static final String MODULE_VERSION = loadVersion();
     public static final String MOUNT_ALIAS_DEFAULT = "ignition-mcp";
 
     public static final String METHOD_INITIALIZE = "initialize";
@@ -19,5 +20,17 @@ public final class McpConstants {
     public static final int JSONRPC_INTERNAL_ERROR = -32603;
 
     private McpConstants() {
+    }
+
+    private static String loadVersion() {
+        try (var stream = McpConstants.class.getResourceAsStream("/ignition-mcp-version.properties")) {
+            var properties = new java.util.Properties();
+            if (stream != null) {
+                properties.load(stream);
+            }
+            return properties.getProperty("moduleVersion", "unknown");
+        } catch (java.io.IOException e) {
+            return "unknown";
+        }
     }
 }

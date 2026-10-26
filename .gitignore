@@ -13,3 +13,26 @@ certs/*
 *.p12
 *.p7b
 tools/module-signer/
+
+# Private local notes, test environments, and publication-review evidence
+.local/
+
+# Environment variants and machine-local client settings
+.env.*
+!.env.example
+.envrc
+.direnv/
+.codex/config.toml
+.claude/settings.local.json
+.mcp.json
+
+# Installable modules, private keys, Gateway backups, and runtime dumps
+*.modl
+*.modl.sha256
+*.key
+*.pem
+*.pfx
+*.gwbk
+*.hprof
+*.heapdump
+*.log

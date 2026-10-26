@@ -2,6 +2,13 @@ plugins {
     `java-library`
 }
 
+tasks.processResources {
+    inputs.property("moduleVersion", project.version.toString())
+    filesMatching("ignition-mcp-version.properties") {
+        expand("moduleVersion" to project.version.toString())
+    }
+}
+
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))

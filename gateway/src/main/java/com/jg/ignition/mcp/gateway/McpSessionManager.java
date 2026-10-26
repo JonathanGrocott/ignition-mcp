@@ -28,6 +28,10 @@ public class McpSessionManager {
         return state != null && state.actorFingerprint().equals(actorFingerprint);
     }
 
+    public boolean exists(String sessionId) {
+        return sessions.containsKey(sessionId);
+    }
+
     public void closeSession(String sessionId) {
         sessions.remove(sessionId);
     }
