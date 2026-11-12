@@ -51,7 +51,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         [
           "allowedWriteToolPatterns",
           "Write tools",
-          "Allow the actions this token needs. Planned project changes use ignition.projects.changes.apply.",
+          "Use ignition.projects.changes.apply for planned writes or ignition.projects.changes.write for direct writes.",
           "ignition.projects.changes.apply",
         ],
         [
@@ -71,6 +71,12 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           "Named query write targets",
           "Format: project/query-path.",
           "MyProject/MCP/*",
+        ],
+        [
+          "allowedProjectResourceWritePatterns",
+          "Project resource write targets",
+          "Format: project/module/type/path. Scope this to the views or other project resources the token may change.",
+          "MyProject/com.inductiveautomation.perspective/views/*",
         ],
         [
           "allowedNamedQueryExecutePatterns",
@@ -117,7 +123,8 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
       const NAMES = {
         enabled: "MCP service",
         writesEnabled: "Gateway write mode",
-        defaultDryRun: "Explicit commit for legacy writes",
+        defaultDryRun: "Dry-run default",
+        allowDirectProjectChanges: "Direct project changes",
         authorizationMode: "Authorization mode",
         authorizationProfiles: "Token profiles",
         mountAlias: "Endpoint alias",
@@ -168,6 +175,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           streamableEnabled: cfg.streamableEnabled !== false,
           sseFallbackEnabled: cfg.sseFallbackEnabled !== false,
           writesEnabled: cfg.writesEnabled === true,
+          allowDirectProjectChanges: cfg.allowDirectProjectChanges === true,
           defaultDryRun: cfg.defaultDryRun !== false,
           authorizationMode:
             cfg.authorizationMode === "profiles-only"
@@ -182,7 +190,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         GRANTS.forEach(([key]) => {
           out[key] = Array.isArray(cfg[key])
             ? cfg[key]
-            : ["allowedTagWritePatterns"].includes(key)
+            : ["allowedTagWritePatterns", "allowedProjectResourceWritePatterns"].includes(key)
               ? []
               : ["*"];
         });
@@ -210,6 +218,8 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
           }
           if (row.name !== undefined && typeof row.name !== "string")
             throw new Error(`Profile ${index + 1}: name must be text.`);
+          if (row.fullAccess !== undefined && typeof row.fullAccess !== "boolean")
+            throw new Error(`Profile ${index + 1}: fullAccess must be a boolean.`);
         });
         return rows;
       }
@@ -837,15 +847,20 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                   e(
                     "span",
                     null,
-                    config.defaultDryRun
-                      ? "Client sends commit: true"
-                      : "Client commits · planned apply needs commit: true",
+                    config.allowDirectProjectChanges
+                      ? "Preview/apply or direct project writes"
+                      : "Preview/apply for project bundles",
                   ),
                 ),
                 check(
                   "defaultDryRun",
-                  "Require explicit commit for legacy write tools",
-                  "Keep enabled to make legacy mutations dry-run by default. Planned project changes always require commit: true.",
+                  "Require explicit commit for direct and legacy writes",
+                  "When enabled, these tools default to dry-run. Applying a stored plan always requires commit: true.",
+                ),
+                check(
+                  "allowDirectProjectChanges",
+                  "Allow direct project changes",
+                  "Permits authorized tokens to use ignition.projects.changes.write without a stored preview.",
                 ),
               ),
             ),
@@ -962,10 +977,12 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                 ),
                               ),
                               pill(
-                                (profile.allowedWriteToolPatterns || []).length
-                                  ? "Write tools granted"
-                                  : "No write tools",
-                                (profile.allowedWriteToolPatterns || []).length
+                                profile.fullAccess
+                                  ? "Full access"
+                                  : (profile.allowedWriteToolPatterns || []).length
+                                    ? "Write tools granted"
+                                    : "No write tools",
+                                profile.fullAccess || (profile.allowedWriteToolPatterns || []).length
                                   ? "warn"
                                   : "",
                               ),
@@ -1016,6 +1033,21 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                   ),
                                 ),
                                 e(
+                                  "label",
+                                  { className: "mcp-check" },
+                                  e("input", {
+                                    type: "checkbox",
+                                    checked: profile.fullAccess === true,
+                                    onChange: (event) => updateProfile(index, "fullAccess", event.target.checked),
+                                  }),
+                                  e(
+                                    "span",
+                                    null,
+                                    e("strong", null, "Full access"),
+                                    e("span", { className: "mcp-hint" }, "Grant all MCP tools and targets to matching API tokens. Gateway write settings still apply."),
+                                  ),
+                                ),
+                                e(
                                   "div",
                                   { className: "mcp-profile-section" },
                                   e("h3", null, "Read permissions"),
@@ -1048,7 +1080,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                   e(
                                     "div",
                                     { className: "mcp-form-grid" },
-                                    ...GRANTS.slice(3, 7).map((row) =>
+                                    ...GRANTS.slice(3, 8).map((row) =>
                                       grant(
                                         row,
                                         profile,
@@ -1070,7 +1102,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                   e(
                                     "div",
                                     { className: "mcp-form-grid" },
-                                    ...GRANTS.slice(7).map((row) =>
+                                    ...GRANTS.slice(8).map((row) =>
                                       grant(
                                         row,
                                         profile,

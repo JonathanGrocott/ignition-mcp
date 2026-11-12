@@ -309,6 +309,8 @@ class McpRouteRegistrarIntegrationTest {
         assertTrue(body.path("observability").path("topTools").isArray());
         assertTrue(body.path("observability").path("recentEvents").isArray());
         assertTrue(body.path("config").path("allowedProjectResourceReadPatterns").isArray());
+        assertTrue(body.path("config").path("allowedProjectResourceWritePatterns").isArray());
+        assertTrue(body.path("config").path("allowDirectProjectChanges").isBoolean());
         assertTrue(body.path("config").path("allowedProjectScriptWritePatterns").isArray());
         assertTrue(body.path("config").path("allowedNamedQueryWritePatterns").isArray());
         assertTrue(body.path("config").path("allowedReadToolPatterns").isArray());
@@ -333,6 +335,7 @@ class McpRouteRegistrarIntegrationTest {
                     "maxWriteOpsPerMinutePerToken": 60,
                     "defaultDryRun": true,
                     "writesEnabled": true,
+                    "allowDirectProjectChanges": true,
                     "authorizationMode": "profiles-only",
                     "maxBatchWriteSize": 50,
                     "allowedOrigins": [],
@@ -342,6 +345,7 @@ class McpRouteRegistrarIntegrationTest {
                     "allowedAlarmAckSources": ["prov:public/*"],
                     "allowedNamedQueryExecutePatterns": ["PublicProject/*"],
                     "allowedProjectResourceReadPatterns": ["PublicProject/ignition/*/*"],
+                    "allowedProjectResourceWritePatterns": ["PublicProject/com.inductiveautomation.perspective/views/*"],
                     "allowedProjectScriptWritePatterns": ["PublicProject/library/*"],
                     "allowedNamedQueryWritePatterns": ["PublicProject/MCP/*"],
                     "allowedReadToolPatterns": [],
@@ -350,6 +354,7 @@ class McpRouteRegistrarIntegrationTest {
                       {
                         "name": "ops",
                         "tokenPatterns": ["ops-*"],
+                        "fullAccess": true,
                         "allowedReadToolPatterns": ["ignition.projects.*"],
                         "allowedWriteToolPatterns": ["ignition.tags.write"],
                         "allowedTagReadPatterns": ["[default]Ops/*"],
@@ -377,6 +382,10 @@ class McpRouteRegistrarIntegrationTest {
         assertEquals("ops", body.path("config").path("authorizationProfiles").path(0).path("name").asText());
         assertTrue(configRef.get().authorizationProfiles().get(0).allowedTagReadPatterns().contains("[default]Ops/*"));
         assertTrue(body.path("config").path("writesEnabled").asBoolean());
+        assertTrue(body.path("config").path("allowDirectProjectChanges").asBoolean());
+        assertTrue(body.path("config").path("authorizationProfiles").path(0).path("fullAccess").asBoolean());
+        assertEquals("PublicProject/com.inductiveautomation.perspective/views/*",
+            body.path("config").path("allowedProjectResourceWritePatterns").path(0).asText());
         assertEquals("profiles-only", body.path("config").path("authorizationMode").asText());
     }
 

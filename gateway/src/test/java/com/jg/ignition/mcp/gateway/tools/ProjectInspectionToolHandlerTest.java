@@ -158,7 +158,7 @@ class ProjectInspectionToolHandlerTest extends InspectionTestSupport {
     @Test
     void registryDeclaresNewToolsReadOnlyAndRequiredArguments() {
         var registry = new ToolRegistry();
-        assertEquals(42, registry.definitions().size());
+        assertEquals(43, registry.definitions().size());
         var definition = registry.find("ignition.perspective.views.read").orElseThrow().definition();
         assertFalse(definition.mutating());
         assertEquals("project", definition.inputSchema().path("required").get(0).asText());

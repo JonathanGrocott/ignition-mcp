@@ -165,7 +165,20 @@ public record McpServerConfigResource(
     @FormField(FormFieldType.TEXT)
     @DefaultValue("additive")
     @Description("additive combines global and profile grants; profiles-only ignores all global grants.")
-    String authorizationMode
+    String authorizationMode,
+
+    @FormCategory("Safety")
+    @Label("Allow Direct Project Changes")
+    @FormField(FormFieldType.CHECKBOX)
+    @DefaultValue("false")
+    @Description("Allow the project change write tool to commit without a stored preview plan.")
+    Boolean allowDirectProjectChanges,
+
+    @FormCategory("Authorization")
+    @Label("Allowed Project Resource Write Patterns")
+    @FormField(FormFieldType.TEXT)
+    @Description("Project resource write targets in project/module/type/path format.")
+    List<String> allowedProjectResourceWritePatterns
 ) {
 
     private static final boolean DEFAULT_ENABLED = true;
@@ -204,7 +217,9 @@ public record McpServerConfigResource(
         List<String> allowedNamedQueryExecutePatterns,
         List<String> allowedProjectResourceReadPatterns,
         List<String> allowedProjectScriptWritePatterns,
-        List<String> allowedNamedQueryWritePatterns
+        List<String> allowedNamedQueryWritePatterns,
+        List<String> allowedProjectResourceWritePatterns,
+        Boolean fullAccess
     ) {
         public AuthorizationProfile {
             name = StringUtils.defaultString(name).trim();
@@ -218,6 +233,19 @@ public record McpServerConfigResource(
             allowedProjectResourceReadPatterns = immutableList(allowedProjectResourceReadPatterns);
             allowedProjectScriptWritePatterns = immutableList(allowedProjectScriptWritePatterns);
             allowedNamedQueryWritePatterns = immutableList(allowedNamedQueryWritePatterns);
+            allowedProjectResourceWritePatterns = immutableList(allowedProjectResourceWritePatterns);
+            fullAccess = Boolean.TRUE.equals(fullAccess);
+        }
+
+        public AuthorizationProfile(String name, List<String> tokenPatterns, List<String> allowedReadToolPatterns,
+                                    List<String> allowedWriteToolPatterns, List<String> allowedTagReadPatterns,
+                                    List<String> allowedTagWritePatterns, List<String> allowedAlarmAckSources,
+                                    List<String> allowedNamedQueryExecutePatterns, List<String> allowedProjectResourceReadPatterns,
+                                    List<String> allowedProjectScriptWritePatterns, List<String> allowedNamedQueryWritePatterns) {
+            this(name, tokenPatterns, allowedReadToolPatterns, allowedWriteToolPatterns, allowedTagReadPatterns,
+                allowedTagWritePatterns, allowedAlarmAckSources, allowedNamedQueryExecutePatterns,
+                allowedProjectResourceReadPatterns, allowedProjectScriptWritePatterns, allowedNamedQueryWritePatterns,
+                List.of(), false);
         }
     }
 
@@ -260,6 +288,8 @@ public record McpServerConfigResource(
 
     public McpServerConfigResource {
         writesEnabled = Boolean.TRUE.equals(writesEnabled);
+        allowDirectProjectChanges = Boolean.TRUE.equals(allowDirectProjectChanges);
+        allowedProjectResourceWritePatterns = immutableList(allowedProjectResourceWritePatterns);
         authorizationMode = authorizationMode == null ? "additive" : authorizationMode.trim();
         if (!List.of("additive", "profiles-only").contains(authorizationMode)) {
             throw new IllegalArgumentException("authorizationMode must be additive or profiles-only");
@@ -434,7 +464,7 @@ public record McpServerConfigResource(
             maxBatchWriteSize, allowedTagReadPatterns, allowedTagWritePatterns, allowedAlarmAckSources,
             allowedNamedQueryExecutePatterns, allowedProjectResourceReadPatterns, allowedProjectScriptWritePatterns,
             allowedNamedQueryWritePatterns, allowedReadToolPatterns, allowedWriteToolPatterns, authorizationProfiles,
-            historianDefaultProvider, historianMaxRows, namedQueryMaxRows, false, "additive");
+            historianDefaultProvider, historianMaxRows, namedQueryMaxRows, false, "additive", false, List.of());
     }
 
     private static int positiveOrDefault(Integer value, int defaultValue) {

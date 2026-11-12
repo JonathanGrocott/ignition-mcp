@@ -8,13 +8,13 @@ A native Ignition 8.3 Gateway module that lets MCP clients inspect Gateway data 
 
 ## What it can do
 
-Ignition MCP **0.4.0** exposes **42 tools**:
+Ignition MCP **0.5.0** exposes **43 tools**:
 
 - Browse/read tags, inspect definitions and UDTs, search OPC mappings and collect bounded snapshots.
 - Inspect Perspective views, stored bindings/events, project resources and literal source references.
 - Read Gateway status, installed modules, connection status and bounded logs.
 - Inspect named queries, query tag history and list alarms, subject to permissions.
-- Inspect portable JSON bundles and preview/apply supported Python-library and named-query resource changes with conflict checks and readback verification.
+- Import and update Perspective views and other Designer project resources from native Ignition export ZIPs or portable JSON bundles. Use preview/apply or opt in to direct writes. Both workflows check for conflicts and verify saved resources.
 - Perform scoped legacy tag, definition, script, named-query and alarm operations where supported.
 
 See the complete [Tool Reference](docs/TOOL_REFERENCE.md) for names, access classes and limitations. There is no arbitrary Gateway script execution tool. This is a tools-only MCP server; it does not expose MCP resources/prompts. The Gateway UI configures access and displays activity; change previews are returned to the MCP client.
@@ -29,7 +29,7 @@ See the complete [Tool Reference](docs/TOOL_REFERENCE.md) for names, access clas
 
 The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your actual Gateway host, port, HTTPS configuration and saved alias.
 
-**Upgrade behavior:** `writesEnabled` defaults to **false**, including older persisted configurations missing that field. An operator must explicitly allow writes before a committing MCP call can succeed. Global and profile grants combine in the compatibility-default `additive` mode; `profiles-only` ignores all global grants. See [migration and change semantics](docs/CHANGE_WORKFLOWS.md).
+**Upgrade behavior:** `writesEnabled` defaults to **false**, including older persisted configurations missing that field. An operator must explicitly allow writes before a committing MCP call can succeed. Global and profile grants combine in the compatibility-default `additive` mode; `profiles-only` ignores all global grants. Full access grants all MCP tools and targets to matching tokens. Direct project changes are disabled until enabled by a Gateway administrator. See [migration and change semantics](docs/CHANGE_WORKFLOWS.md).
 
 ## Documentation
 
@@ -38,7 +38,7 @@ The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your 
 | [User Guide](docs/USER_GUIDE.md) | Illustrated installation, first read, scoped permissions, writes and troubleshooting |
 | [Gateway UI](docs/GATEWAY_UI.md) | Section-by-section UI, visual profiles, themes, drafts and save behavior |
 | [Client Setup](docs/CLAUDE_CODEX_SETUP.md) | Codex desktop/CLI and Claude Code configuration, authentication and connection checks |
-| [Tool Reference](docs/TOOL_REFERENCE.md) | All 42 tools, required grant families and supported write surfaces |
+| [Tool Reference](docs/TOOL_REFERENCE.md) | Tool names, required grants and supported write surfaces |
 | [Change Workflows](docs/CHANGE_WORKFLOWS.md) | Bundle format, preview/apply contracts, expiry, conflicts and uncertain outcomes |
 | [Inspection Tools](docs/INSPECTION_TOOLS.md) | Detailed inspection arguments, work budgets, partial results and unsupported formats |
 | [MCP Protocol Examples](docs/MCP_REFERENCE.md) | HTTP routes, session headers and JSON-RPC examples |
@@ -48,7 +48,7 @@ The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your 
 
 ## Build from source
 
-These docs target the **0.4.0 release**. Before packaging it, set `moduleVersion` in `build.gradle.kts` to `0.4.0`; the release tag must match (`v0.4.0`). Distribute the signed release artifact, not a development snapshot.
+The Designer resource write features described here require **0.5.0**.
 
 End users installing a built module do not need the build toolchain. Developers need Java 17 and access to the Ignition Maven repositories:
 

@@ -1,6 +1,6 @@
-# Reviewed project changes — 0.4.0
+# Designer project resource changes
 
-Ignition MCP 0.4.0 adds four change-workflow tools (42 tools total), an operator write gate, and a profiles-only policy mode. It builds on the read-only inspection tools without adding arbitrary Gateway script execution or generic project-resource writes.
+Ignition MCP 0.5.0 adds native Ignition ZIP import and general Designer project resource writes, including Perspective views. Use preview/apply for a stored comparison or enable direct writes for one-call import and updates.
 
 ## Operator configuration and migration
 
@@ -17,24 +17,33 @@ Authenticated initialization, ping and catalog discovery remain available; profi
 
 The Gateway UI exposes write-mode choices, authorization mode and a visual profile editor under **Access & writes**. **Add reader** and **Add writer** append a profile with empty token/target scopes; they preserve existing profiles and the current write mode. These controls edit a draft; **Save changes** persists it. In Profiles only mode, saved global fields remain visible but disabled and inactive. Switching back to additive reactivates those global grants. See the [Gateway UI guide](GATEWAY_UI.md) for the complete editing and save behavior.
 
-To authorize a planned change, the caller needs read-tool access to preview, write-tool access to apply, project-resource read permission for every target, and the corresponding script or named-query write-target grant. Python-library write paths use `project/library/path`, consistent with the existing script policy. Apply has its own tool grant; it does not require enabling a legacy direct-import tool. The write gate must also be enabled. Preview can be prepared while commits are disabled.
+To authorize a planned change, the caller needs read-tool access to preview, write-tool access to apply, project-resource read permission for every target, and a **Project resource write targets** grant for each `project/module/type/path`. Existing Python library and named-query write target grants also authorize their respective resources. Full access grants every tool and target to matching token names. The saved Gateway write settings apply to all tokens. Apply has its own tool grant; it does not require enabling a legacy direct-import tool. The write gate must also be enabled. Preview can be prepared while commits are disabled.
+
+## Direct writes
+
+Under **Access & writes**, save **Allow authorized writes** and **Allow direct project changes**. Give the token `ignition.projects.changes.write` and read/write target grants, or use **Full access** on its profile. With **Require explicit commit for direct and legacy writes** enabled, supply `commit: true` on the direct call. Turn off that setting if the client should commit when it omits `commit`. An explicit `commit: false` always requests a dry-run. Preview/apply remains available alongside direct writes.
 
 ## Tools
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `ignition.projects.bundle.inspect` | `bundle` | Validates and inventories an uploaded portable JSON bundle. Reports resource/file identities, attributes, semantic fingerprints, decoded size and completeness without reading Gateway projects or applying files |
-| `ignition.projects.changes.preview` | `targetProject`, `bundle` | Checks current target permissions, mutability, inheritance and operation constraints; stages a token-owned 10-minute plan with before/after identities, metadata, fingerprints and bounded file text previews |
+| `ignition.projects.bundle.inspect` | `bundle` or `zipBase64` | Validates and inventories an uploaded portable JSON bundle or Ignition export ZIP. Reports resource/file identities, attributes, semantic fingerprints, decoded size and completeness without reading Gateway projects or applying files |
+| `ignition.projects.changes.preview` | `targetProject`, `bundle` or `zipBase64` | Checks current target permissions, mutability, inheritance and operation constraints; stages a token-owned 10-minute plan with before/after identities, metadata, fingerprints and bounded file text previews |
 | `ignition.projects.changes.apply` | `planId`, `planHash`, `commit: true` | Uses only the stored target/content, rechecks current grants and current target state, submits SDK changes with the previewed signatures, then reads back every target |
 | `ignition.projects.changes.status` | `planId` | Returns the owned plan or its stored application receipt, subject to current target read grants. This is not a fresh target-state query |
+| `ignition.projects.changes.write` | `targetProject`, `bundle` or `zipBase64`, optional `commit` | Prepares and verifies a direct write in the same call. A dry-run returns a comparison without creating a stored plan |
 
 Preview is **not human approval**. The caller can supply `commit=true`; the operator gate and policy provide authorization, while the stored hash/plan provide consistency. Plans are kept in bounded Gateway memory and invalidated by expiry or module/Gateway restart. They are not durable deployment jobs.
 
-## Bundle contract
+## Native Ignition ZIPs
 
-The bundle uses the existing `ignition-mcp.project-resource-bundle.v1` export envelope. JSON only: there is no arbitrary local file path, URL fetching, ZIP extraction or filesystem scan.
+Pass the base64 contents of a Designer export under `zipBase64`. The same input works with bundle inspection, preview, and direct write. Every resource in the ZIP is an upsert into `targetProject`. An export with `project.json` can be used to merge resource files into an existing project. Project settings from `project.json` are ignored. For a view-only import, export the selected views and any project dependencies you intend to merge. All resources in the request must be authorized.
 
-The inspection tool runs inside the live module but can inspect uploaded exports without importing them or accessing any installed project. It is not a standalone parser for use when the Gateway itself is offline.
+The importer reads native `resource.json` and `unary-resource.json` manifests and their declared files in memory. It rejects missing files, unlisted files, duplicate paths, and incomplete archives. A singleton such as Perspective page configuration uses the MCP resource path `_unary`. A ZIP import leaves other resources in the destination project in place.
+
+## Portable JSON bundle
+
+Use the existing `ignition-mcp.project-resource-bundle.v1` export envelope to submit explicit operations or update resources from an MCP export.
 
 ```json
 {
@@ -58,12 +67,9 @@ The inspection tool runs inside the live module but can inspect uploaded exports
 }
 ```
 
-Supported planned changes are:
+The workflow submits native, named and singleton Designer resources through Ignition's project manager. Preserve the resource's version, scope, files and attributes from a target-version export. Perspective views require `view.json` with a root component. Python libraries and named queries retain their format checks. Other resource types are submitted using their native bytes and metadata. Their module-specific behavior needs validation in Designer or the running project.
 
-- Native `ignition/script-python` library resources: version 1, one UTF-8 `code.py` file.
-- `ignition/named-query` resources: the SDK's current resource version, with its native text/JSON payload and attributes. Export a current resource using `projects.resource.read/export` rather than guessing the native metadata schema. Legacy binary/XML payloads are rejected.
-
-Other resource types can be inventoried by bundle inspection but cannot be planned/applied. Views, reports, event/startup/timer scripts, folders, unary resources, manifests and Gateway configuration are outside this apply surface. Inherited resources cannot be overridden implicitly; explicitly target the defining project and obtain its permissions instead.
+Changes target individual local resources in an existing mutable project. Creating projects, changing project metadata, moving/deleting folder trees and overriding inherited resources require Designer or the appropriate Ignition project workflow. Changes to the defining project use that project's permissions.
 
 Operations are explicit per resource: `create`, `edit`, `upsert` (default) or `delete`. A delete entry must contain identity/operation and **no data payload**. There is no implicit deletion of resources absent from a bundle. A truncated bundle, count mismatch, duplicate identity, noncanonical/traversal path, unknown encoding, or unsupported planned type rejects the plan; unsupported resources are not silently skipped.
 
@@ -90,8 +96,8 @@ There is no atomic-batch or automatic-rollback guarantee. The SDK may apply some
 
 ## Bounds
 
-- Bundle JSON and decoded payload: 2 MiB each; 1–100 resource entries.
-- Per resource: 512 KiB, 32 data files, 256 attributes; JSON nesting depth 64.
+- Bundle JSON, ZIP archive and expanded payload are each limited to 2 MiB. Submit 1–100 resource entries per call.
+- Each resource is limited to 512 KiB, 32 files in its resource directory and 256 attributes. JSON nesting depth is limited to 64.
 - Plans additionally obey current `maxBatchWriteSize` (default 50, at most 100 here), both at preview and apply.
 - Preview/result: 2 MiB. Oversize previews are rejected before a usable plan is returned.
 - Plan store: 32 records, 16 MiB estimated payload/summary material, 10-minute TTL. Capacity errors require waiting for expiry.
@@ -117,4 +123,4 @@ python3 scripts/test_mcp_changes.py
 
 For a **disposable loopback Gateway** with writes explicitly enabled, set `MCP_COMMIT_CHANGE_TESTS=true`. The script requires a `McpChangeValidation...` project name, uses unique `MCP/Workflow_...` and `MCP/Query_...` paths, verifies its create/edit/conflict/replay/delete operations, and never executes its stored scripts or SQL. Existing resources are not selected for replacement. An interrupted/failed run can leave its uniquely named fixtures for inspection. `MCP_CHANGE_REPORT` writes a summary without credentials or source payloads.
 
-Native binary pipeline decoding, semantic dependency resolution, arbitrary script execution, durable deployment orchestration and MCP resources/prompts remain separate follow-on work.
+The project resource workflow checks persistence. Use Designer or the target runtime to verify module-specific behavior and project dependencies.

@@ -32,10 +32,14 @@ final class ProjectBundle {
     private ProjectBundle() {}
 
     static Parsed parse(JsonNode bundle, String target, ObjectMapper mapper) {
+        return parse(bundle, target, mapper, true);
+    }
+
+    static Parsed parse(JsonNode bundle, String target, ObjectMapper mapper, boolean checkEnvelopeSize) {
         if (!bundle.isObject() || !FORMAT.equals(bundle.path("format").asText())) {
             throw new IllegalArgumentException("bundle.format must be " + FORMAT);
         }
-        if (bundle.toString().getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) {
+        if (checkEnvelopeSize && bundle.toString().getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) {
             throw new IllegalArgumentException("Bundle exceeds the 2 MiB input limit");
         }
         canonical(bundle, mapper, 0); // Reject deep metadata before passing it to the platform JSON codec.
@@ -50,7 +54,16 @@ final class ProjectBundle {
             if (!node.isObject()) { throw new IllegalArgumentException("Each resource must be an object"); }
             String module = identifier(node, "moduleId");
             String type = identifier(node, "resourceType");
-            String path = path(node.path("path").asText(""), true);
+            if (!node.path("path").isTextual()) { throw new IllegalArgumentException("Resource path must be a string"); }
+            String path = path(node.path("path").asText(), true);
+            if (node.has("unary") && !node.path("unary").isBoolean()) {
+                throw new IllegalArgumentException("unary must be a boolean");
+            }
+            boolean unary = node.path("unary").asBoolean(path.equals("_unary"));
+            if (path.isEmpty() && unary) { path = "_unary"; }
+            if (unary != path.equals("_unary")) {
+                throw new IllegalArgumentException("Unary resource flags must match the resource path");
+            }
             String operation = node.path("operation").asText("upsert");
             if (!Set.of("upsert", "create", "edit", "delete").contains(operation)) {
                 throw new IllegalArgumentException("Resource operation must be upsert, create, edit or delete");
@@ -70,7 +83,7 @@ final class ProjectBundle {
                 .setRestricted(node.path("restricted").asBoolean(false))
                 .setOverridable(node.path("overridable").asBoolean(true))
                 .setFolder(node.path("folder").asBoolean(false))
-                .setUnary(node.path("unary").asBoolean(false));
+                .setUnary(unary);
             JsonNode attributes = node.path("attributes");
             if (!attributes.isMissingNode() && !attributes.isObject()) { throw new IllegalArgumentException("attributes must be an object"); }
             if (attributes.size() > 256) { throw new IllegalArgumentException("Too many resource attributes"); }
@@ -81,6 +94,16 @@ final class ProjectBundle {
             });
             JsonNode data = node.path("data");
             if (!data.isMissingNode() && !data.isObject()) { throw new IllegalArgumentException("data must be an object"); }
+            if (!operation.equals("delete") && node.has("dataKeys")) {
+                Set<String> declared = new HashSet<>();
+                if (!node.path("dataKeys").isArray()) { throw new IllegalArgumentException("dataKeys must be an array"); }
+                for (JsonNode key : node.path("dataKeys")) {
+                    if (!key.isTextual() || !declared.add(key.textValue()) || !data.has(key.textValue())) {
+                        throw new IllegalArgumentException("dataKeys must match the supplied data files");
+                    }
+                }
+                if (declared.size() != data.size()) { throw new IllegalArgumentException("dataKeys must match the supplied data files"); }
+            }
             if (data.size() > 32 || operation.equals("delete") && !data.isEmpty()) {
                 throw new IllegalArgumentException("Too many files, or delete operation contains unused data");
             }
@@ -88,7 +111,7 @@ final class ProjectBundle {
             var fields = data.fields();
             while (fields.hasNext()) {
                 var field = fields.next();
-                path(field.getKey(), false);
+                dataFile(field.getKey());
                 JsonNode file = field.getValue();
                 if (!file.isObject() || !file.has("value")) { throw new IllegalArgumentException("Each file requires encoding and value"); }
                 String encoding = file.path("encoding").asText("utf-8");
@@ -137,14 +160,21 @@ final class ProjectBundle {
 
     static String path(String value, boolean allowEmpty) {
         if (allowEmpty && value.isEmpty()) { return value; }
-        if (value.isEmpty() || value.length() > 512 || !value.equals(value.trim()) || value.contains("\\")
+        if (value.isEmpty() || value.length() > 512 || value.contains("\\") || value.contains(":")
             || value.chars().anyMatch(Character::isISOControl)) { throw new IllegalArgumentException("Invalid resource/file path"); }
         for (String part : value.split("/", -1)) {
-            if (part.isEmpty() || part.equals(".") || part.equals("..")) {
+            if (part.isEmpty() || !part.equals(part.trim()) || part.equals(".") || part.endsWith(".")) {
                 throw new IllegalArgumentException("Resource/file paths must be canonical relative paths");
             }
         }
         return value;
+    }
+
+    static void dataFile(String name) {
+        path(name, false);
+        if (name.contains("/") || name.equalsIgnoreCase("resource.json") || name.equalsIgnoreCase("unary-resource.json")) {
+            throw new IllegalArgumentException("Resource data must be a file in its own resource directory");
+        }
     }
 
     static String fingerprint(Resource resource, ObjectMapper mapper) {

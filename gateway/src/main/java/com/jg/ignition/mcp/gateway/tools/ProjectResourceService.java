@@ -17,7 +17,6 @@ import com.jg.ignition.mcp.common.ToolExecutionResult;
 import com.jg.ignition.mcp.gateway.ToolCallContext;
 import org.apache.commons.lang3.StringUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -272,10 +271,12 @@ final class ProjectResourceService {
     private static JsonNode serializeData(ObjectMapper mapper, ImmutableBytes bytes) {
         ObjectNode node = mapper.createObjectNode();
         node.put("byteLength", bytes.length());
-        String asText = bytes.getBytesAsString(StandardCharsets.UTF_8);
-        if (isMostlyText(asText) && asText.length() <= MAX_TEXT_DATA_CHARS) {
+        var text = InspectionSupport.text(bytes);
+        if (text.isPresent() && text.get().length() <= MAX_TEXT_DATA_CHARS) {
+            String asText = text.get();
             node.put("encoding", "utf-8");
-            node.set("value", parsePossiblyJson(mapper, asText));
+            JsonNode decoded = parsePossiblyJson(mapper, asText);
+            node.set("value", decoded.isContainerNode() ? decoded : mapper.valueToTree(asText));
         }
         else {
             node.put("encoding", "base64");
@@ -296,13 +297,4 @@ final class ProjectResourceService {
         }
     }
 
-    private static boolean isMostlyText(String value) {
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if (Character.isISOControl(ch) && ch != '\n' && ch != '\r' && ch != '\t') {
-                return false;
-            }
-        }
-        return true;
-    }
 }

@@ -1,5 +1,21 @@
 # Validation and compatibility
 
+## 0.5.0 release acceptance
+
+The signed 0.5.0 module ran on an isolated Ignition 8.3.9 Gateway. Its package SHA-256 was `7849f5cea263254e69176b197b532648d22c78e66989f1059e879a014705fb84`. All six package payload signatures verified with SHA-256 and RSA. The build passed 99 Java tests and 9 Gateway UI-state tests.
+
+In one synthetic project, MCP preview/apply imported Overview, Equipment/Card, Dialogs/Editor and page configuration. Direct write imported History and Navigation/Header. The five saved view files matched the ZIP before editing. In native Designer, all five opened, accepted a root flex-direction edit, and saved to the Gateway. MCP readback confirmed the five edits and preserved the stored binding and action configurations. Designer omitted default-valued fields on save, and the Editor fixture initialized its draft from its input parameter. The fresh-session reopen check remains unverified.
+
+## 0.5.0-SNAPSHOT Designer resource checks
+
+On November 11, 2026, a disposable Ignition 8.3.9 Gateway ran the development module. A scoped token previewed and applied five Perspective views and their page configuration. Readback matched the supplied resource files. A Full access token directly imported a ZIP exported by that Gateway into a second project, including the singleton page configuration and binary project properties. Repeating the import verified zero changes. A direct edit without a commit flag succeeded under the configured default, and an explicit dry-run left the saved view in place.
+
+The imported project's Overview and its editor popup rendered in a Perspective browser session. The Gateway UI displayed the persisted Full access profile and saved changes to the direct-write setting. Designer reopen and save, additional module-specific resource formats, and other Ignition patch versions remain unverified.
+
+The build passed 99 Java tests, 9 UI-state tests, and module package verification. The native Gateway also passed the 14 existing reviewed script and named-query workflow checks. The live instance used the unsigned development package. The signed local package was built from the same module payload.
+
+## 0.4.0 validation
+
 This record summarizes local validation performed on **2026-10-25** for **Ignition MCP 0.4.0**. The final signed **0.4.0** artifact passed Gateway/MCP acceptance after the development milestones described below. The checks were local; no hosted CI or GitHub publication is claimed.
 
 ## Environment

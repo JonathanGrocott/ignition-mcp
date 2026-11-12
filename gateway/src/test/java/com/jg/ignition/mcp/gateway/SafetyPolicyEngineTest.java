@@ -12,6 +12,28 @@ class SafetyPolicyEngineTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void fullAccessMatchesOnlyItsTokenAndKeepsGatewayWriteControls() throws Exception {
+        var config = mapper.readValue("""
+            {"authorizationMode":"profiles-only","authorizationProfiles":[
+              {"name":"Designer automation","tokenPatterns":["designer-agent"],"fullAccess":true},
+              {"name":"Scoped","tokenPatterns":["scoped-agent"],"allowedProjectResourceWritePatterns":[
+                "Plant/com.inductiveautomation.perspective/views/Inspection/*"]}
+            ]}
+            """, McpServerConfigResource.class);
+        var policy = new SafetyPolicyEngine(() -> config);
+        assertTrue(policy.isToolAllowed("designer-agent", "ignition.projects.changes.write", true));
+        assertTrue(policy.isTagWriteAllowed("designer-agent", "[other]Equipment/Value"));
+        assertTrue(policy.isProjectResourceWriteAllowed("designer-agent", "Plant", "com.inductiveautomation.perspective", "views", "Main"));
+        assertTrue(policy.isProjectResourceWriteAllowed("scoped-agent", "Plant", "com.inductiveautomation.perspective", "views", "Inspection/Main"));
+        assertFalse(policy.isProjectResourceWriteAllowed("scoped-agent", "Other", "com.inductiveautomation.perspective", "views", "Inspection/Main"));
+        assertFalse(policy.isToolAllowed("unmatched", "ignition.projects.changes.write", true));
+        assertFalse(policy.isProjectResourceWriteAllowed("unmatched", "Plant", "com.inductiveautomation.perspective", "views", "Main"));
+        assertFalse(policy.writesEnabled());
+        assertFalse(policy.allowsDirectProjectChanges());
+        assertTrue(policy.isDryRun(mapper.createObjectNode()));
+    }
+
+    @Test
     void usesDefaultDryRunWhenCommitMissing() {
         McpServerConfigResource config = new McpServerConfigResource(
             true,

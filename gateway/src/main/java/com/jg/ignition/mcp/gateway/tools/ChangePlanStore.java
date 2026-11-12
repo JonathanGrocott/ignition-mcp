@@ -34,13 +34,17 @@ final class ChangePlanStore {
         volatile String state = "pending";
         ObjectNode receipt;
         Plan(String owner, String project, String hash, long expiresAt, List<Change> changes, ObjectNode summary, int bytes) {
-            this.id = UUID.randomUUID().toString(); this.owner = owner; this.project = project; this.hash = hash;
+            this.id = hash == null ? null : UUID.randomUUID().toString();
+            this.owner = owner; this.project = project; this.hash = hash;
             this.expiresAt = expiresAt; this.changes = List.copyOf(changes); this.summary = summary.deepCopy();
             this.materialBytes = bytes;
         }
         ObjectNode snapshot() {
             ObjectNode result = receipt == null ? summary.deepCopy() : receipt.deepCopy();
-            result.put("planId", id).put("planHash", hash).put("state", state).put("expiresAt", expiresAt);
+            result.put("state", state);
+            if (id != null) {
+                result.put("planId", id).put("planHash", hash).put("expiresAt", expiresAt);
+            }
             return result;
         }
     }

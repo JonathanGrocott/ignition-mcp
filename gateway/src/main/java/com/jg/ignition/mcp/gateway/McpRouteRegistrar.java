@@ -551,6 +551,7 @@ public class McpRouteRegistrar {
         out.put("maxWriteOpsPerMinutePerToken", config.maxWriteOpsPerMinutePerToken());
         out.put("defaultDryRun", config.defaultDryRun());
         out.put("writesEnabled", config.writesEnabled());
+        out.put("allowDirectProjectChanges", config.allowDirectProjectChanges());
         out.put("authorizationMode", config.authorizationMode());
         out.put("maxBatchWriteSize", config.maxBatchWriteSize());
         out.set("allowedTagReadPatterns", objectMapper.valueToTree(config.allowedTagReadPatterns()));
@@ -558,6 +559,7 @@ public class McpRouteRegistrar {
         out.set("allowedAlarmAckSources", objectMapper.valueToTree(config.allowedAlarmAckSources()));
         out.set("allowedNamedQueryExecutePatterns", objectMapper.valueToTree(config.allowedNamedQueryExecutePatterns()));
         out.set("allowedProjectResourceReadPatterns", objectMapper.valueToTree(config.allowedProjectResourceReadPatterns()));
+        out.set("allowedProjectResourceWritePatterns", objectMapper.valueToTree(config.allowedProjectResourceWritePatterns()));
         out.set("allowedProjectScriptWritePatterns", objectMapper.valueToTree(config.allowedProjectScriptWritePatterns()));
         out.set("allowedNamedQueryWritePatterns", objectMapper.valueToTree(config.allowedNamedQueryWritePatterns()));
         out.set("allowedReadToolPatterns", objectMapper.valueToTree(config.allowedReadToolPatterns()));

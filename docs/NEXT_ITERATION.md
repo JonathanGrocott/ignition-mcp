@@ -1,6 +1,6 @@
 # Roadmap
 
-The [0.4.0 changelog](../CHANGELOG.md) lists implemented features. The items below are remaining work or possible extensions, not commitments or currently supported capabilities.
+The [changelog](../CHANGELOG.md) lists implemented features. The items below are remaining work or possible extensions.
 
 ## Qualification
 
@@ -11,10 +11,10 @@ The [0.4.0 changelog](../CHANGELOG.md) lists implemented features. The items bel
 ## Potential extensions
 
 - Semantic reference resolution, including relative, inherited and dynamic references, beyond literal source matches.
-- Additional typed project-resource changes after their metadata, concurrency and recovery behavior are qualified.
+- Module-specific Designer validation for additional resource formats.
 - Durable change-plan receipts and explicit recovery workflows across restarts.
 - MCP resources/prompts if there is a concrete client workflow that benefits from them.
 
-Arbitrary Gateway script execution and generic resource writes are outside the current module's supported surface. Any expansion needs a separate design for access control, bounded execution and recovery.
+The Designer resource change workflow is documented in [Change Workflows](CHANGE_WORKFLOWS.md).
 
 See [inspection contracts](INSPECTION_TOOLS.md), [change contracts](CHANGE_WORKFLOWS.md) and [validation limits](VALIDATION.md).

@@ -1,6 +1,6 @@
 # Gateway MCP interface
 
-For **Ignition MCP 0.4.0**. Screenshots show the interface prepared for this release; [capture notes](images/gateway/README.md) identify the pre-release build used.
+For **Ignition MCP 0.5.0**. Screenshots show the 0.4.0 interface; [capture notes](images/gateway/README.md) identify the pre-release build used.
 
 Open **Services → Ignition MCP → Configuration**. The module uses the existing Gateway web session and its corresponding configuration read/write permissions. For installation, API keys and a complete first-read/change workflow, use the [illustrated User Guide](USER_GUIDE.md).
 
@@ -24,7 +24,7 @@ The **Appearance** selector provides System, Light and Dark themes. System follo
 
 1. Under **Access & writes**, select **Allow authorized writes**.
 2. Give the caller a matching token profile with both its **write tool** and its **write target**. Planned Python-library changes need `ignition.projects.changes.apply`, an authorized project-resource read path, and a script write target such as `MyProject/library/MCP/*`.
-3. Keep **Require explicit commit for legacy write tools** enabled for dry-runs by default. Planned apply always requires `commit: true`.
+3. Enable **Allow direct project changes** if a token should be able to use `ignition.projects.changes.write`. **Require explicit commit for direct and legacy writes** controls whether calls without `commit` dry-run. Applying a stored plan requires `commit: true`.
 4. Review the unsaved change summary and click **Save changes**.
 
 The status strip always shows the **saved** write mode. Choosing a different radio option edits a draft. The save bar remains available while a draft exists; **Discard changes** returns to the latest saved settings. Selecting **Read-only** and saving blocks subsequent MCP commits, while authorized reads and previews remain available. An SDK write already submitted is not cancelled.
@@ -38,6 +38,8 @@ The status strip always shows the **saved** write mode. Choosing a different rad
 The visual editor exposes profile names, API token name patterns, read/write tool patterns and tag/project/query scopes. Enter the **token name**, never its secret. Comma-separated values and one pattern per line are supported. Empty grant lists grant no access. Query execution and alarm acknowledgment targets are in their own expandable section.
 
 **Add reader** and **Add writer** append a new profile without replacing existing ones. New profiles need token names and target scopes before they are useful. The writer template starts with the planned-apply tool, with empty write targets. API tokens themselves are created in **Platform → Security → API Keys**, not by this editor.
+
+**Full access** grants all MCP tools and targets to tokens matching that profile. Saved Gateway write settings still apply. For a scoped Perspective writer, set **Project resource write targets** and **Readable project resources** to the relevant `project/com.inductiveautomation.perspective/views/*` pattern.
 
 **Profiles only** ignores global grants and denies unmatched token names. Multiple matching profiles combine their grants. **Global + profile grants** is additive: a narrow profile cannot restrict a broad global grant. Global fields are displayed as inactive/disabled in Profiles only mode and retained for a future mode change.
 

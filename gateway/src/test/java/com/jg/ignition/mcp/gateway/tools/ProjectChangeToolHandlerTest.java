@@ -13,10 +13,13 @@ import com.jg.ignition.mcp.gateway.ToolCallContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -38,6 +43,8 @@ class ProjectChangeToolHandlerTest extends InspectionTestSupport {
     void setup() {
         when(config.maxBatchWriteSize()).thenReturn(50);
         when(config.writesEnabled()).thenReturn(true);
+        when(config.defaultDryRun()).thenReturn(true);
+        when(config.allowedWriteToolPatterns()).thenReturn(List.of("*"));
         when(config.allowedProjectScriptWritePatterns()).thenReturn(List.of("*"));
         when(config.allowedNamedQueryWritePatterns()).thenReturn(List.of("*"));
         when(gateway.getProjectManager()).thenReturn(manager);
@@ -282,12 +289,76 @@ class ProjectChangeToolHandlerTest extends InspectionTestSupport {
     }
 
     @Test
-    void unsupportedTypesAndEventScriptsCannotBecomeGenericProjectWrites() {
+    void perspectiveNeedsAnExplicitResourceWriteTarget() {
         Resource view = Resource.newBuilder().setResourceCollectionName("Plant")
             .setResourcePath(ProjectResourceService.resourcePath("com.inductiveautomation.perspective", "views", "Main"))
             .putData("view.json", "{\"root\":{}}").setVersion(1).setApplicationScope(7).build();
         var result = call("changes.preview", mapper.createObjectNode().put("targetProject", "Plant").set("bundle", bundle(view)));
-        assertEquals("UNSUPPORTED_TYPE", result.structuredContent().path("code").asText());
+        assertEquals("ALLOWLIST_BLOCKED", result.structuredContent().path("code").asText());
+    }
+
+    @Test
+    void perspectiveZipWorksWithReviewedAndDirectWrites() throws Exception {
+        successfulPush();
+        when(config.allowedProjectResourceWritePatterns()).thenReturn(List.of("Plant/com.inductiveautomation.perspective/*"));
+        String viewDir = "com.inductiveautomation.perspective/views/Inspection/Main/";
+        String pageDir = "com.inductiveautomation.perspective/page-config/";
+        byte[] archive = zip(Map.of(
+            "project.json", "{}",
+            viewDir + "resource.json", "{\"scope\":\"G\",\"version\":1,\"files\":[\"view.json\"]}",
+            viewDir + "view.json", "{\"root\":{\"type\":\"ia.container.flex\"}}",
+            pageDir + "unary-resource.json", "{\"scope\":\"G\",\"version\":1,\"files\":[\"config.json\"]}",
+            pageDir + "config.json", "{}"));
+        ObjectNode args = mapper.createObjectNode().put("targetProject", "Plant")
+            .put("zipBase64", Base64.getEncoder().encodeToString(archive));
+
+        assertEquals("DIRECT_WRITES_DISABLED", call("changes.write", args).structuredContent().path("code").asText());
+        var staged = call("changes.preview", args);
+        assertFalse(staged.isError(), staged.text());
+        assertEquals(2, staged.structuredContent().path("resourceCount").asInt());
+        verify(manager, never()).push(anyList());
+        assertTrue(call("changes.apply", applyArgs(staged.structuredContent())).structuredContent().path("verified").asBoolean());
+        assertTrue(state.get(ProjectResourceService.resourcePath("com.inductiveautomation.perspective", "page-config", "_unary")).isUnary());
+
+        when(config.allowDirectProjectChanges()).thenReturn(true);
+        Resource current = state.get(ProjectResourceService.resourcePath("com.inductiveautomation.perspective", "views", "Inspection/Main"));
+        Resource edited = current.copy(builder -> builder.putData("view.json", "{\"root\":{\"type\":\"ia.container.coord\"}}"));
+        ObjectNode edit = mapper.createObjectNode().put("targetProject", "Plant").set("bundle", bundle(edited));
+        assertTrue(call("changes.write", edit).structuredContent().path("dryRun").asBoolean());
+        assertEquals(current, state.get(current.getResourcePath()));
+        when(config.defaultDryRun()).thenReturn(false);
+        var written = call("changes.write", edit);
+        assertFalse(written.isError(), written.text());
+        assertTrue(written.structuredContent().path("verified").asBoolean());
+        assertFalse(written.structuredContent().has("planId"));
+        assertEquals(edited, state.get(current.getResourcePath()));
+    }
+
+    @Test
+    void zipRejectsTruncatedUnlistedAndTraversalEntries() throws Exception {
+        String viewDir = "com.inductiveautomation.perspective/views/Inspection/Main/";
+        var valid = Map.of(viewDir + "resource.json", "{\"scope\":\"G\",\"version\":1,\"files\":[\"view.json\"]}",
+            viewDir + "view.json", "{\"root\":{\"type\":\"ia.container.flex\"}}");
+        byte[] truncated = zip(valid);
+        var invalid = new java.util.HashMap<>(valid);
+        invalid.put("ignition/script-python/Other/code.py", "answer=1");
+        for (byte[] archive : List.of(java.util.Arrays.copyOf(truncated, truncated.length - 22), zip(invalid),
+            zip(Map.of(viewDir + "../resource.json", "{}")))) {
+            var result = call("bundle.inspect", mapper.createObjectNode().put("zipBase64", Base64.getEncoder().encodeToString(archive)));
+            assertTrue(result.isError(), result.text());
+        }
+    }
+
+    private static byte[] zip(Map<String, String> files) throws Exception {
+        var bytes = new ByteArrayOutputStream();
+        try (var zip = new ZipOutputStream(bytes)) {
+            for (var file : files.entrySet()) {
+                zip.putNextEntry(new ZipEntry(file.getKey()));
+                zip.write(file.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 
     @Test

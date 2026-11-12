@@ -1,5 +1,6 @@
 package com.jg.ignition.mcp.gateway.tools;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -12,6 +13,7 @@ import com.jg.ignition.mcp.common.ToolDefinition;
 import com.jg.ignition.mcp.common.ToolExecutionResult;
 import com.jg.ignition.mcp.gateway.ToolCallContext;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +21,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
-/** Staged typed resource changes. Apply never accepts a replacement bundle or target project. */
+/** Project resource changes through the same SDK write path for stored plans and direct requests. */
 public final class ProjectChangeToolHandler implements ToolHandler {
     private final String name;
     private final ChangePlanStore plans;
@@ -29,18 +31,20 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         return List.of(new ProjectChangeToolHandler("ignition.projects.bundle.inspect", store),
             new ProjectChangeToolHandler("ignition.projects.changes.preview", store),
             new ProjectChangeToolHandler("ignition.projects.changes.apply", store),
-            new ProjectChangeToolHandler("ignition.projects.changes.status", store));
+            new ProjectChangeToolHandler("ignition.projects.changes.status", store),
+            new ProjectChangeToolHandler("ignition.projects.changes.write", store));
     }
 
     ProjectChangeToolHandler(String name, ChangePlanStore plans) { this.name = name; this.plans = plans; }
 
     @Override
     public ToolDefinition definition() {
-        boolean mutating = name.endsWith(".apply");
+        boolean mutating = name.endsWith(".apply") || name.endsWith(".write");
         return new ToolDefinition(name, switch (name) {
-            case "ignition.projects.bundle.inspect" -> "Inspect an uploaded JSON resource bundle without accessing Gateway projects or applying files; reports formats and hashes";
-            case "ignition.projects.changes.preview" -> "Prepare a token-owned, expiring plan for explicit native Python-library/named-query resource changes; includes before/after hashes and bounded content previews";
+            case "ignition.projects.bundle.inspect" -> "Inspect a portable JSON bundle or base64 Ignition export ZIP without accessing Gateway projects; reports formats and hashes";
+            case "ignition.projects.changes.preview" -> "Preview changes from a portable JSON bundle or base64 Ignition export ZIP, including Perspective views. Returns a token-owned expiring plan";
             case "ignition.projects.changes.apply" -> "Apply exactly a stored plan with commit=true and its planHash, operator write gate and current policies; rechecks conflicts and verifies every resource by readback";
+            case "ignition.projects.changes.write" -> "Write project resources from a portable JSON bundle or base64 Ignition export ZIP without a stored plan when direct project changes are enabled. Supports commit=false for a dry-run";
             default -> "Read the stored result of a token-owned plan; receipts are observations at application time, not a fresh health check";
         }, mutating ? PermissionRequirement.WRITE : PermissionRequirement.READ, schema(), mutating);
     }
@@ -52,7 +56,7 @@ public final class ProjectChangeToolHandler implements ToolHandler {
             if (!args.isObject()) { throw new IllegalArgumentException("arguments must be an object"); }
             return switch (name) {
                 case "ignition.projects.bundle.inspect" -> inspect(args, context);
-                case "ignition.projects.changes.preview" -> preview(args, context);
+                case "ignition.projects.changes.preview", "ignition.projects.changes.write" -> prepare(args, context);
                 case "ignition.projects.changes.apply", "ignition.projects.changes.status" -> stored(args, context);
                 default -> ToolExecutionResult.error("Unknown change workflow tool");
             };
@@ -60,13 +64,13 @@ public final class ProjectChangeToolHandler implements ToolHandler {
     }
 
     private ToolExecutionResult inspect(JsonNode args, ToolCallContext context) {
-        var bundle = ProjectBundle.parse(args.path("bundle"), "uploaded", context.objectMapper());
+        var bundle = parseInput(args, "uploaded", context);
         ObjectNode out = context.objectMapper().createObjectNode();
         ArrayNode rows = out.putArray("resources");
         for (var item : bundle.items()) {
             ObjectNode row = summary(context, item.resource());
             row.put("operation", item.operation()).put("decodedBytes", item.bytes());
-            row.put("planTypeSupported", supported(item.resource().getResourcePath()) && !item.resource().isFolder() && !item.resource().isUnary());
+            row.put("planTypeSupported", !item.resource().isFolder());
             rows.add(row);
         }
         out.put("resourceCount", rows.size()).put("decodedBytes", bundle.bytes()).put("complete", bundle.complete());
@@ -74,10 +78,21 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         return InspectionSupport.result("Portable bundle inspected", out);
     }
 
-    private ToolExecutionResult preview(JsonNode args, ToolCallContext context) throws Exception {
+    private ToolExecutionResult prepare(JsonNode args, ToolCallContext context) throws Exception {
+        boolean direct = name.endsWith(".write");
+        if (direct && !context.safetyPolicy().allowsDirectProjectChanges()) {
+            return ToolExecutionResult.error("DIRECT_WRITES_DISABLED", "Enable direct project changes or use changes.preview and changes.apply");
+        }
+        if (direct && args.has("commit") && !args.path("commit").isBoolean()) {
+            throw new IllegalArgumentException("commit must be a boolean");
+        }
+        boolean commit = direct && !context.safetyPolicy().isDryRun(args);
+        if (commit && !context.safetyPolicy().writesEnabled()) {
+            return ToolExecutionResult.error("WRITES_DISABLED", "Gateway operator has not enabled MCP writes");
+        }
         String project = ProjectBundle.path(InspectionSupport.required(args, "targetProject"), false);
         if (project.contains("/")) { throw new IllegalArgumentException("targetProject must be a single project name"); }
-        var bundle = ProjectBundle.parse(args.path("bundle"), project, context.objectMapper());
+        var bundle = parseInput(args, project, context);
         if (!bundle.complete()) { return ToolExecutionResult.error("INCOMPLETE_BUNDLE", "Cannot plan from a truncated or count-mismatched bundle"); }
         if (bundle.items().size() > Math.min(100, context.safetyPolicy().maxBatchWriteSize())) {
             throw new IllegalArgumentException("Plan exceeds configured maxBatchWriteSize");
@@ -92,11 +107,14 @@ public final class ProjectChangeToolHandler implements ToolHandler {
             Resource desired = item.resource();
             ResourcePath path = desired.getResourcePath();
             authorize(context, project, path, true);
-            if (desired.isFolder() || desired.isUnary() || path.getPath().toString().isEmpty()) {
-                throw new IllegalArgumentException("Plans cannot change folders, unary resources or project configuration");
+            if (desired.isFolder()) {
+                throw new IllegalArgumentException("Change the individual project resources inside a folder");
             }
             Resource before = manager.getResource(project, path).orElse(null);
             rejectInherited(before, project);
+            if (before != null && before.isFolder()) {
+                throw new IllegalArgumentException("Change the individual project resources inside a folder");
+            }
             if (item.operation().equals("create") && before != null || item.operation().equals("edit") && before == null
                 || item.operation().equals("delete") && before == null) {
                 return ToolExecutionResult.error("CONFLICT", "Requested operation conflicts with current resource existence");
@@ -108,6 +126,7 @@ public final class ProjectChangeToolHandler implements ToolHandler {
             String action = beforeHash.equals(afterHash) ? "unchanged" : delete ? "delete" : before == null ? "create" : "modify";
             changes.add(new ChangePlanStore.Change(path, delete ? null : desired, beforeHash, afterHash,
                 before == null ? null : before.getResourceSignature(), action));
+            if (commit) { continue; }
             ObjectNode row = rows.addObject().put("moduleId", path.getModuleId()).put("resourceType", path.getType())
                 .put("path", path.getPath().toString()).put("action", action).put("beforeHash", beforeHash).put("afterHash", afterHash);
             if (before != null) { row.set("before", summary(context, before)); }
@@ -116,7 +135,15 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         }
         out.put("resourceCount", changes.size());
         out.put("changeCount", changes.stream().filter(change -> !change.action().equals("unchanged")).count());
+        if (commit) {
+            out.remove("changes");
+            return applyChanges(new ChangePlanStore.Plan(context.authContext().tokenName(), project, null,
+                Long.MAX_VALUE, changes, out, 0), context);
+        }
         out.put("dryRun", true).put("writesEnabledAtPreview", context.safetyPolicy().writesEnabled());
+        if (direct) {
+            return InspectionSupport.result("Direct project change dry-run", out);
+        }
         out.put("note", "Preview is not human approval. Apply requires explicit commit=true, the returned planHash, operator write enablement and current grants. Restart/expiry invalidates the plan.");
         ToolExecutionResult bounded = InspectionSupport.result("Project change preview prepared", out);
         if (bounded.isError()) { return bounded; }
@@ -134,7 +161,7 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         synchronized (plan) {
             for (var change : plan.changes) { authorize(context, plan.project, change.path(), name.endsWith(".apply")); }
             if (name.endsWith(".status")) { return InspectionSupport.result("Stored plan receipt retrieved", plan.snapshot()); }
-            for (String forbidden : List.of("bundle", "resources", "targetProject", "project")) {
+            for (String forbidden : List.of("bundle", "zipBase64", "resources", "targetProject", "project")) {
                 if (args.has(forbidden)) { throw new IllegalArgumentException("Apply cannot replace stored content or target"); }
             }
             if (!args.path("commit").isBoolean() || !args.path("commit").booleanValue()) {
@@ -151,74 +178,84 @@ public final class ProjectChangeToolHandler implements ToolHandler {
                 return plan.state.equals("verified") ? InspectionSupport.result("Plan was already verified; no writes repeated", receipt)
                     : ToolExecutionResult.error("Plan was already attempted; inspect its receipt and create a new preview", receipt);
             }
-            if (plan.changes.size() > context.safetyPolicy().maxBatchWriteSize()) {
-                throw new IllegalArgumentException("Plan exceeds current maxBatchWriteSize");
-            }
-            var manager = InspectionSupport.manager(context);
-            var mutable = ProjectResourceService.requireMutable(manager, plan.project);
-            if (mutable != null) { return mutable; }
-            List<ChangeOperation> operations = new ArrayList<>();
-            for (var change : plan.changes) {
-                Resource current = manager.getResource(plan.project, change.path()).orElse(null);
-                rejectInherited(current, plan.project);
-                if (!ProjectBundle.fingerprint(current, context.objectMapper()).equals(change.beforeHash())) {
-                    return terminal(plan, "conflict", "CONFLICT", "Target changed since preview; prepare a new plan", context, false);
-                }
-                switch (change.action()) {
-                    case "create" -> operations.add(ChangeOperation.newCreateOp(change.desired()));
-                    case "modify" -> operations.add(ChangeOperation.newModifyOp(change.desired(), change.signature()));
-                    case "delete" -> operations.add(ChangeOperation.newDeleteOp(change.signature()));
-                    default -> { /* Unchanged resources are still checked for conflicts and readback. */ }
-                }
-            }
-            if (plans.expired(plan)) {
-                return terminal(plan, "expired", "PLAN_EXPIRED", "Plan expired during preflight; prepare a new preview", context, false);
-            }
-            // Long previews/preflights must not turn an earlier policy snapshot into a commit permit.
-            for (var change : plan.changes) { authorize(context, plan.project, change.path(), true); }
-            if (!context.safetyPolicy().writesEnabled()) {
-                return ToolExecutionResult.error("WRITES_DISABLED", "Gateway operator disabled MCP writes before submission");
-            }
-            if (plan.changes.size() > context.safetyPolicy().maxBatchWriteSize()) {
-                throw new IllegalArgumentException("Plan exceeds current maxBatchWriteSize");
-            }
-            var stillMutable = ProjectResourceService.requireMutable(manager, plan.project);
-            if (stillMutable != null) { return stillMutable; }
-            plan.state = "applying";
-            if (!operations.isEmpty()) {
-                try {
-                    manager.push(operations).get(30, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return terminal(plan, "outcome-unknown", "OUTCOME_UNKNOWN", "Apply was interrupted; changes may have landed. Do not blindly retry.", context, true);
-                } catch (Exception e) {
-                    // A failed/timed-out future does not establish that none of a batch was written.
-                    return terminal(plan, "outcome-unknown", "OUTCOME_UNKNOWN", "Apply did not complete normally; inspect target state before preparing another plan", context, true);
-                }
-            }
-            ObjectNode receipt = context.objectMapper().createObjectNode().put("targetProject", plan.project)
-                .put("writeAttempted", !operations.isEmpty()).put("pushCompleted", true).put("changeCount", operations.size());
-            ArrayNode verification = receipt.putArray("verification");
-            boolean verified = true;
-            for (var change : plan.changes) {
-                ObjectNode row = verification.addObject().put("resourcePath", change.path().toString());
-                try {
-                    Resource actual = manager.getResource(plan.project, change.path()).orElse(null);
-                    String actualHash = ProjectBundle.fingerprint(actual, context.objectMapper());
-                    boolean matches = actualHash.equals(change.afterHash());
-                    row.put("verified", matches).put("expectedHash", change.afterHash()).put("actualHash", actualHash);
-                    verified &= matches;
-                } catch (Exception e) { row.put("verified", false).put("code", "READBACK_FAILED"); verified = false; }
-            }
-            plan.state = verified ? "verified" : "verification-failed";
-            receipt.put("verified", verified).put("observedAt", System.currentTimeMillis());
-            if (verified) { receipt.put("committed", !operations.isEmpty()); }
-            if (!verified) { receipt.put("code", "VERIFICATION_FAILED").put("message", "Writes may have landed; at least one resource did not verify"); }
-            plan.receipt = receipt;
-            context.auditLogger().logWriteAttempt(context.authContext().tokenName(), name, !operations.isEmpty(), verified, plan.project);
-            return verified ? InspectionSupport.result("Plan applied and every target verified", plan.snapshot())
-                : ToolExecutionResult.error("Post-apply verification failed", plan.snapshot());
+            return applyChanges(plan, context);
         }
+    }
+
+    private ToolExecutionResult applyChanges(ChangePlanStore.Plan plan, ToolCallContext context) {
+        if (plan.changes.size() > context.safetyPolicy().maxBatchWriteSize()) {
+            throw new IllegalArgumentException("Plan exceeds current maxBatchWriteSize");
+        }
+        var manager = InspectionSupport.manager(context);
+        var mutable = ProjectResourceService.requireMutable(manager, plan.project);
+        if (mutable != null) { return mutable; }
+        List<ChangeOperation> operations = new ArrayList<>();
+        for (var change : plan.changes) {
+            Resource current = manager.getResource(plan.project, change.path()).orElse(null);
+            rejectInherited(current, plan.project);
+            if (!ProjectBundle.fingerprint(current, context.objectMapper()).equals(change.beforeHash())) {
+                return terminal(plan, "conflict", "CONFLICT", "Target changed during change preparation; read current state and resubmit", context, false);
+            }
+            switch (change.action()) {
+                case "create" -> operations.add(ChangeOperation.newCreateOp(change.desired()));
+                case "modify" -> operations.add(ChangeOperation.newModifyOp(change.desired(), change.signature()));
+                case "delete" -> operations.add(ChangeOperation.newDeleteOp(change.signature()));
+                default -> { /* Unchanged resources are still checked for conflicts and readback. */ }
+            }
+        }
+        if (plan.id != null && plans.expired(plan)) {
+            return terminal(plan, "expired", "PLAN_EXPIRED", "Plan expired during preflight; prepare a new preview", context, false);
+        }
+        // Check current policy again after reading the target resources.
+        if (!context.safetyPolicy().isToolAllowed(context.authContext().tokenName(), name, true)) {
+            return ToolExecutionResult.error("TOOL_NOT_AUTHORIZED", "Current policy no longer grants this write tool");
+        }
+        if (plan.id == null && !context.safetyPolicy().allowsDirectProjectChanges()) {
+            return ToolExecutionResult.error("DIRECT_WRITES_DISABLED", "Direct project changes were disabled before submission");
+        }
+        for (var change : plan.changes) { authorize(context, plan.project, change.path(), true); }
+        if (!context.safetyPolicy().writesEnabled()) {
+            return ToolExecutionResult.error("WRITES_DISABLED", "Gateway operator disabled MCP writes before submission");
+        }
+        if (plan.changes.size() > context.safetyPolicy().maxBatchWriteSize()) {
+            throw new IllegalArgumentException("Plan exceeds current maxBatchWriteSize");
+        }
+        var stillMutable = ProjectResourceService.requireMutable(manager, plan.project);
+        if (stillMutable != null) { return stillMutable; }
+        plan.state = "applying";
+        if (!operations.isEmpty()) {
+            try {
+                manager.push(operations).get(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return terminal(plan, "outcome-unknown", "OUTCOME_UNKNOWN", "Apply was interrupted; changes may have landed. Do not blindly retry.", context, true);
+            } catch (Exception e) {
+                // A failed/timed-out future does not establish that none of a batch was written.
+                return terminal(plan, "outcome-unknown", "OUTCOME_UNKNOWN", "Apply did not complete normally; inspect target state before preparing another plan", context, true);
+            }
+        }
+        ObjectNode receipt = context.objectMapper().createObjectNode().put("targetProject", plan.project)
+            .put("writeAttempted", !operations.isEmpty()).put("pushCompleted", true).put("changeCount", operations.size());
+        ArrayNode verification = receipt.putArray("verification");
+        boolean verified = true;
+        for (var change : plan.changes) {
+            ObjectNode row = verification.addObject().put("resourcePath", change.path().toString());
+            try {
+                Resource actual = manager.getResource(plan.project, change.path()).orElse(null);
+                String actualHash = ProjectBundle.fingerprint(actual, context.objectMapper());
+                boolean matches = actualHash.equals(change.afterHash());
+                row.put("verified", matches).put("expectedHash", change.afterHash()).put("actualHash", actualHash);
+                verified &= matches;
+            } catch (Exception e) { row.put("verified", false).put("code", "READBACK_FAILED"); verified = false; }
+        }
+        plan.state = verified ? "verified" : "verification-failed";
+        receipt.put("verified", verified).put("observedAt", System.currentTimeMillis());
+        if (verified) { receipt.put("committed", !operations.isEmpty()); }
+        if (!verified) { receipt.put("code", "VERIFICATION_FAILED").put("message", "Writes may have landed; at least one resource did not verify"); }
+        plan.receipt = receipt;
+        context.auditLogger().logWriteAttempt(context.authContext().tokenName(), name, !operations.isEmpty(), verified, plan.project);
+        return verified ? InspectionSupport.result("Project changes applied and every target verified", plan.snapshot())
+            : ToolExecutionResult.error("Post-apply verification failed", plan.snapshot());
     }
 
     private ToolExecutionResult terminal(ChangePlanStore.Plan plan, String state, String code, String message,
@@ -231,42 +268,76 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         return ToolExecutionResult.error(message, plan.snapshot());
     }
 
-    private static void authorize(ToolCallContext context, String project, ResourcePath path, boolean write) {
-        if (!supported(path)) { throw new InspectionSupport.InspectionException("UNSUPPORTED_TYPE", "Plans support native Python library and named-query resources only"); }
-        String actor = context.authContext().tokenName();
-        if (!context.safetyPolicy().isProjectResourceReadAllowed(actor, project, path.getModuleId(), path.getType(), path.getPath().toString())) {
-            throw new InspectionSupport.InspectionException("ALLOWLIST_BLOCKED", "Plan target read blocked by allowlist");
+    private static ProjectBundle.Parsed parseInput(JsonNode args, String project, ToolCallContext context) {
+        if (args.has("bundle") == args.has("zipBase64")) {
+            throw new IllegalArgumentException("Provide exactly one of bundle or zipBase64");
         }
-        boolean allowed = path.getType().equals("named-query")
-            ? context.safetyPolicy().isNamedQueryWriteAllowed(actor, project, path.getPath().toString())
-            : context.safetyPolicy().isProjectScriptWriteAllowed(actor, project, "library/" + path.getPath());
-        if (write && !allowed) { throw new InspectionSupport.InspectionException("ALLOWLIST_BLOCKED", "Plan target write blocked by allowlist"); }
+        if (args.has("zipBase64")) {
+            try {
+                return ProjectExportZip.parse(InspectionSupport.required(args, "zipBase64"), project, context.objectMapper());
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Invalid ZIP data or resource manifest", e);
+            }
+        }
+        return ProjectBundle.parse(args.path("bundle"), project, context.objectMapper());
     }
 
-    private static boolean supported(ResourcePath path) {
-        return "ignition".equals(path.getModuleId()) && Set.of("script-python", "named-query").contains(path.getType());
+    private static void authorize(ToolCallContext context, String project, ResourcePath path, boolean write) {
+        String actor = context.authContext().tokenName();
+        String module = path.getModuleId();
+        String type = path.getType();
+        String resource = path.getPath().toString();
+        var policy = context.safetyPolicy();
+        if (!policy.isProjectResourceReadAllowed(actor, project, module, type, resource)) {
+            throw new InspectionSupport.InspectionException("ALLOWLIST_BLOCKED", "Project resource read blocked by allowlist");
+        }
+        if (!write || policy.isProjectResourceWriteAllowed(actor, project, module, type, resource)) {
+            return;
+        }
+        boolean legacyGrant = "ignition".equals(module) && switch (type) {
+            case "named-query" -> policy.isNamedQueryWriteAllowed(actor, project, resource);
+            case "script-python" -> policy.isProjectScriptWriteAllowed(actor, project, "library/" + resource);
+            default -> false;
+        };
+        if (!legacyGrant) {
+            throw new InspectionSupport.InspectionException("ALLOWLIST_BLOCKED", "Project resource write blocked by allowlist");
+        }
     }
 
     private void validateTyped(Resource desired, ToolCallContext context) throws Exception {
-        if (desired.getResourcePath().getType().equals("named-query")) {
+        var path = desired.getResourcePath();
+        if ("ignition".equals(path.getModuleId()) && "named-query".equals(path.getType())) {
             if (desired.getVersion() != NamedQuery.CURRENT_RESOURCE_VERSION) {
                 throw new InspectionSupport.InspectionException("UNSUPPORTED_FORMAT", "Named query requires the SDK's current resource version");
             }
             for (String key : desired.getDataKeys()) {
                 if ((!key.endsWith(".json") && !key.endsWith(".sql"))
                     || InspectionSupport.text(desired.getData(key).orElseThrow()).isEmpty()) {
-                    throw new InspectionSupport.InspectionException("UNSUPPORTED_FORMAT", "Named query plans accept current text/JSON resources, not legacy binary data");
+                    throw new InspectionSupport.InspectionException("UNSUPPORTED_FORMAT", "Named query plans accept current text/JSON resources");
                 }
             }
-            // Current-version decoding must not fall back to an XML/object deserializer on client input.
             NamedQuery query = NamedQuery.fromResource(desired, null);
             if (query.getType() == null || query.getQuery() == null || query.getQuery().isBlank()) {
                 throw new IllegalArgumentException("Named query resource has no type or SQL");
             }
-        } else {
+        } else if ("ignition".equals(path.getModuleId()) && "script-python".equals(path.getType())) {
             if (desired.getVersion() != 1 || !desired.getDataKeys().equals(Set.of("code.py"))
                 || InspectionSupport.text(desired.getData("code.py").orElseThrow()).isEmpty()) {
                 throw new InspectionSupport.InspectionException("UNSUPPORTED_FORMAT", "Python library requires version 1 and one UTF-8 code.py file");
+            }
+        } else if ("com.inductiveautomation.perspective".equals(path.getModuleId()) && "views".equals(path.getType())) {
+            var data = desired.getData("view.json").flatMap(InspectionSupport::text)
+                .orElseThrow(() -> new IllegalArgumentException("Perspective view requires UTF-8 view.json"));
+            JsonNode view;
+            try {
+                view = context.objectMapper().reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY).readTree(data);
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Invalid Perspective view JSON", e);
+            }
+            if (!view.isObject() || !view.path("root").isObject() || !view.path("root").path("type").isTextual()
+                || view.path("root").path("type").asText().isBlank()) {
+                throw new IllegalArgumentException("Perspective view requires a root component with a type");
             }
         }
     }
@@ -323,14 +394,21 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         ObjectNode schema = mapper.createObjectNode().put("type", "object");
         ObjectNode properties = schema.putObject("properties");
         ArrayNode required = schema.putArray("required");
-        if (name.endsWith(".inspect") || name.endsWith(".preview")) {
-            properties.putObject("bundle").put("type", "object"); required.add("bundle");
+        if (name.endsWith(".inspect") || name.endsWith(".preview") || name.endsWith(".write")) {
+            properties.putObject("bundle").put("type", "object").put("description", "Portable Ignition MCP JSON resource bundle");
+            properties.putObject("zipBase64").put("type", "string").put("description", "Base64 of an Ignition Designer or Gateway project export ZIP. Imports resource files into the target project.");
+            ArrayNode oneOf = schema.putArray("oneOf");
+            oneOf.addObject().putArray("required").add("bundle");
+            oneOf.addObject().putArray("required").add("zipBase64");
         }
-        if (name.endsWith(".preview")) {
+        if (name.endsWith(".preview") || name.endsWith(".write")) {
             properties.putObject("targetProject").put("type", "string"); required.add("targetProject");
         }
         if (name.endsWith(".apply") || name.endsWith(".status")) {
             properties.putObject("planId").put("type", "string"); required.add("planId");
+        }
+        if (name.endsWith(".write")) {
+            properties.putObject("commit").put("type", "boolean").put("description", "False requests a dry-run. Omission follows the Gateway dry-run setting.");
         }
         if (name.endsWith(".apply")) {
             properties.putObject("planHash").put("type", "string"); required.add("planHash");

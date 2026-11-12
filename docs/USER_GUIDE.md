@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP client to Ignition, give it scoped read access, and deliberately enable supported changes.
 
-This guide covers **Ignition MCP 0.4.0**, with **42 tools** and the redesigned Gateway UI. Install the signed **0.4.0 release module**. Screenshots show the interface prepared for this release, captured on Ignition **8.3.9** using a synthetic development project on port **6890**. See [capture notes](images/gateway/README.md) for the build used. Your Gateway name, port, resources and saved permissions will differ. Some images intentionally show **unsaved drafts**. New installations and older configurations missing `writesEnabled` start with committed writes disabled.
+The Designer resource write workflow uses **Ignition MCP 0.5.0**. Install the signed 0.5.0 module to use ZIP imports, direct writes and Full access profiles. Screenshots show the 0.4.0 interface, captured on Ignition **8.3.9** using a synthetic development project on port **6890**. See [capture notes](images/gateway/README.md) for the build used. Your Gateway name, port, resources and saved permissions will differ. Some images intentionally show **unsaved drafts**. New installations and older configurations missing `writesEnabled` start with committed writes disabled.
 
 ## Contents
 
@@ -155,7 +155,7 @@ Three controls work together:
 
 1. **Gateway operator:** select **Allow authorized writes** and save.
 2. **API token profile:** grant the write tool and the permitted targets. Resource read grants are also required for planned project changes.
-3. **Client call:** explicitly commit the intended operation. Keep **Require explicit commit for legacy write tools** enabled so legacy write calls default to dry-runs. Planned apply always requires `commit: true`.
+3. **Client call:** explicitly commit the intended operation. Keep **Require explicit commit for direct and legacy writes** enabled to default those calls to dry-run. Planned apply always requires `commit: true`.
 
 ![Access and write settings showing the two Gateway write-mode choices](images/gateway/access-writes.jpg)
 
@@ -188,11 +188,24 @@ To stop subsequent MCP commits, select **Read-only** and save. Already-submitted
 
 ## 7. Preview, apply and verify a project change
 
-The planned workflow currently supports **native Python libraries** (`ignition/script-python`, version 1, UTF-8 `code.py`) and **current-format named-query resources**. It does not apply Perspective views, folders, event/startup/timer scripts, arbitrary project resources or Gateway configuration.
+The project change workflow accepts native Designer resources, including Perspective views, from an Ignition export ZIP or an MCP JSON bundle. An import merges resources into an existing project. Each resource needs its own read and write target grants.
+
+### Import Perspective views
+
+1. In the source Designer, select the views and any project resources they depend on under **File → Export**.
+2. Under **Access & writes**, grant the agent `ignition.projects.changes.preview` in **Read tools** and `ignition.projects.changes.apply` in **Write tools**. Add `MyProject/com.inductiveautomation.perspective/views/*` to **Readable project resources** and **Project resource write targets**. Add the paths for any included dependencies.
+3. Have the agent call `ignition.projects.changes.preview` with `targetProject` and the base64 ZIP in `zipBase64`. Apply the returned plan with its ID, hash and `commit: true`.
+4. Open the destination project in Designer and check the view, its bindings, and any page that uses it.
+
+### Configure direct writes
+
+Select **Allow authorized writes** and **Allow direct project changes**, then grant `ignition.projects.changes.write` and its target permissions. For all MCP tools and targets, turn on **Full access** in the matching token profile. Turn off **Require explicit commit for direct and legacy writes** if the agent should commit when it omits the `commit` field. Save your settings.
+
+The direct call accepts the same `targetProject` and `zipBase64` as preview. An explicit `commit: false` requests a dry-run. See [change workflow details](CHANGE_WORKFLOWS.md) for payload and batch limits.
 
 ### Read and preview
 
-Read/export the target resource and retain a copy before replacing important content. Preserve its scope, flags, version, documentation, attributes and other files. A bundle inspection checks uploaded JSON content; a preview also compares it with the live target project.
+Read/export the target resource and retain a copy before replacing important content. Preserve its scope, flags, version, documentation, attributes and other files. A bundle inspection checks an uploaded ZIP or JSON bundle; a preview also compares it with the live target project.
 
 Example prompt:
 
@@ -311,7 +324,7 @@ Gateway UI routes require a Gateway web session with the corresponding read/writ
 - Reference search returns literal candidates; dynamic/inherited dependencies may need additional review.
 - Gateway diagnostics cover selected authorized checks, not complete project/plant health or production readiness. Broad log access may reveal application data; grant it deliberately.
 - Native Alarm Notification binary configuration readback is verified for a disabled two-delay fixture on Ignition 8.3.9. Other versions/custom body codecs need representative checks; stored configuration inspection does not prove notification delivery.
-- Bundle inspection runs in the module against uploaded JSON; it is not a standalone parser that works while the Gateway is offline.
+- Bundle inspection runs in the module against an uploaded ZIP or JSON bundle.
 - Use [validation records](VALIDATION.md) to distinguish fixture, native Gateway, browser and unverified Designer/production behavior.
 
 For exact names and access classes, continue with the [Tool Reference](TOOL_REFERENCE.md). For screenshots, scopes and save behavior alone, use the shorter [Gateway UI guide](GATEWAY_UI.md).

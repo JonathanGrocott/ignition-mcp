@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 (2026-11-11)
+
+- Import native Ignition project export ZIPs and apply portable bundles to an existing project, including Perspective views and singleton resources.
+- Added scoped project resource write grants and Full access token profiles.
+- Added an optional direct project write tool with conflict checks and readback. Stored preview/apply remains available.
+
 ## 0.4.0 (2026-10-25)
 
 This release combines the native inspection and reviewed-change milestones. Validation records distinguish the development builds from final signed-artifact acceptance.

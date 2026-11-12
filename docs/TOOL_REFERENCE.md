@@ -1,8 +1,8 @@
 # Tool reference
 
-The **Ignition MCP 0.4.0** catalog contains **42 tools**. This table was checked against the pre-release module's `tools/list` response on Ignition 8.3.9; the [validation record](VALIDATION.md) identifies the tested build. Older releases may have fewer tools. Ask the connected server for its current schemas rather than assuming a client cached the latest catalog.
+The **Ignition MCP 0.5.0** catalog contains **43 tools**. Ask the connected server for its current schemas after upgrading.
 
-**Read** tools need a matching **Read tools** grant. **Write** tools need a matching **Write tools** grant even for a dry-run, plus the relevant target grants. Committing a Write tool also requires the saved operator gate. The module's read/write classification is its own policy; an Ignition API key authenticates the caller and does not bypass it.
+**Read** tools need a matching **Read tools** grant. **Write** tools need a matching **Write tools** grant even for a dry-run, plus the relevant target grants. Committing a Write tool also requires the saved Gateway write setting. The module's read/write classification is its own policy; an Ignition API key authenticates the caller and does not bypass it.
 
 Required schema fields below are a starting point: handlers additionally validate paths, nonempty lists and operation-specific values. Some older tools advertise a shared schema; not every property applies to every operation. For copyable calls, see the [User Guide](USER_GUIDE.md) and [protocol examples](MCP_REFERENCE.md).
 
@@ -85,10 +85,11 @@ UDT writes use **`ignition.tags.definition.write`**. The dedicated `ignition.udt
 
 | Tool | Class | Required schema fields | Purpose |
 |---|---|---|---|
-| `ignition.projects.bundle.inspect` | Read | `bundle` | Inspect an uploaded JSON resource bundle without accessing Gateway projects or applying files; reports formats and hashes |
-| `ignition.projects.changes.preview` | Read | `bundle`, `targetProject` | Prepare a token-owned, expiring plan for explicit native Python-library/named-query resource changes; includes before/after hashes and bounded content previews |
+| `ignition.projects.bundle.inspect` | Read | `bundle` or `zipBase64` | Inspect a JSON bundle or Ignition export ZIP offline within the module |
+| `ignition.projects.changes.preview` | Read | `targetProject`, `bundle` or `zipBase64` | Prepare an expiring plan for Designer resource changes, including Perspective views |
 | `ignition.projects.changes.apply` | Write | `planId`, `planHash`, `commit` | Apply exactly a stored plan with commit=true and its planHash, operator write gate and current policies; rechecks conflicts and verifies every resource by readback |
 | `ignition.projects.changes.status` | Read | `planId` | Read the stored result of a token-owned plan; receipts are observations at application time, not a fresh health check |
+| `ignition.projects.changes.write` | Write | `targetProject`, `bundle` or `zipBase64` | Commit in one call when direct project changes are enabled. Supports `commit: false` for dry-run |
 
 ## Target grants
 
@@ -102,12 +103,13 @@ UDT writes use **`ignition.tags.definition.write`**. The dedicated `ignition.udt
 | Named-query execute | Separate **Named query execution targets**; classified Write even for SELECT |
 | Alarm acknowledge | **Alarm acknowledgment sources**; listing alarms does not use this acknowledgment allowlist |
 | Gateway diagnose | Checks the caller's grants for its child status/module/connection tools; a diagnose grant alone does not confer them |
-| Bundle inspect | Operates on the supplied JSON only; no installed project access |
-| Changes preview | Resource-read and corresponding script/query write-target grants; can stage a plan while the operator gate is Read-only |
+| Bundle inspect | Operates on the supplied JSON bundle or ZIP, independently of installed projects |
+| Changes preview | Project resource read and write target grants. Can stage while the Gateway is Read-only |
 | Changes apply | Current target read/write grants, exact plan ownership/hash, operator gate and explicit `commit: true` |
+| Changes write | Current project resource read/write grants and the direct project changes setting. Commits require Gateway writes enabled |
 | Changes status | Owned plan and current target-read grants; returns a stored receipt, not fresh target state |
 
-Native Python libraries use `scriptType: "python"` for source reads and `project/library/path` for their write-policy key. For supported native Python and named-query edits, prefer preview/apply over legacy direct write/import calls. Legacy script APIs and planned native resource APIs have different supported formats; the presence of a tool does not establish compatibility with every SDK resource type.
+Native Python libraries use `scriptType: "python"` for source reads and `project/library/path` for their write-policy key. Existing native Python and named-query grants also authorize those resources in the project change workflow. Full access grants all tool and target permissions for the matched token.
 
 The bundled resource export is JSON (`ignition-mcp.project-resource-bundle.v1`). It is not an Ignition Gateway backup or a promise that every exported resource can be applied. Inspect bundle completeness before reuse.
 

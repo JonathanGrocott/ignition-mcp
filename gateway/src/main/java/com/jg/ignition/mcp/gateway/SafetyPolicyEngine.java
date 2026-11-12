@@ -32,6 +32,10 @@ public class SafetyPolicyEngine {
         return Boolean.TRUE.equals(configSupplier.get().writesEnabled());
     }
 
+    public boolean allowsDirectProjectChanges() {
+        return Boolean.TRUE.equals(configSupplier.get().allowDirectProjectChanges());
+    }
+
     public boolean isTagReadAllowed(String tagPath) {
         return isTagReadAllowed(null, tagPath);
     }
@@ -120,6 +124,14 @@ public class SafetyPolicyEngine {
             || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.PROJECT_RESOURCE_READ), fullPath);
     }
 
+    public boolean isProjectResourceWriteAllowed(String tokenName, String projectName, String moduleId,
+                                                 String typeId, String resourcePath) {
+        McpServerConfigResource config = configSupplier.get();
+        String fullPath = projectResourcePath(projectName, moduleId, typeId, resourcePath);
+        return matchesGlobal(config, config.allowedProjectResourceWritePatterns(), fullPath)
+            || matchesAny(profilePatterns(config, tokenName, ProfilePatternKind.PROJECT_RESOURCE_WRITE), fullPath);
+    }
+
     public boolean isProjectScriptWriteAllowed(String projectName, String scriptPath) {
         return isProjectScriptWriteAllowed(null, projectName, scriptPath);
     }
@@ -191,6 +203,9 @@ public class SafetyPolicyEngine {
             if (profile == null || !matchesAnyStatic(profile.tokenPatterns(), tokenName)) {
                 continue;
             }
+            if (Boolean.TRUE.equals(profile.fullAccess())) {
+                return List.of("*");
+            }
             switch (kind) {
                 case READ_TOOL -> patterns.addAll(profile.allowedReadToolPatterns());
                 case WRITE_TOOL -> patterns.addAll(profile.allowedWriteToolPatterns());
@@ -199,6 +214,7 @@ public class SafetyPolicyEngine {
                 case ALARM_ACK -> patterns.addAll(profile.allowedAlarmAckSources());
                 case NAMED_QUERY_EXECUTE -> patterns.addAll(profile.allowedNamedQueryExecutePatterns());
                 case PROJECT_RESOURCE_READ -> patterns.addAll(profile.allowedProjectResourceReadPatterns());
+                case PROJECT_RESOURCE_WRITE -> patterns.addAll(profile.allowedProjectResourceWritePatterns());
                 case PROJECT_SCRIPT_WRITE -> patterns.addAll(profile.allowedProjectScriptWritePatterns());
                 case NAMED_QUERY_WRITE -> patterns.addAll(profile.allowedNamedQueryWritePatterns());
             }
@@ -234,6 +250,7 @@ public class SafetyPolicyEngine {
         ALARM_ACK,
         NAMED_QUERY_EXECUTE,
         PROJECT_RESOURCE_READ,
+        PROJECT_RESOURCE_WRITE,
         PROJECT_SCRIPT_WRITE,
         NAMED_QUERY_WRITE
     }

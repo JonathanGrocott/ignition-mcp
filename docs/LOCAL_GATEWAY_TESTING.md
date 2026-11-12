@@ -1,10 +1,10 @@
 # Local Gateway testing
 
-This guide is for developers validating **Ignition MCP 0.4.0**. For installation and everyday use, start with the [illustrated User Guide](USER_GUIDE.md). Use a dedicated development Gateway/provider/project and preserve its data volume when upgrading the module.
+This guide is for developers validating **Ignition MCP**. For installation and everyday use, start with the [illustrated User Guide](USER_GUIDE.md). Use a dedicated development Gateway/provider/project and preserve its data volume when upgrading the module.
 
 ## Build and install
 
-For the release build, set `moduleVersion` in `build.gradle.kts` to **`0.4.0`** before building. Verify that the packaged module and MCP initialization both report `0.4.0`, without a development suffix. Keep the final artifact's checksum with its test results; earlier snapshot validation does not verify that final artifact.
+For a release build, set `moduleVersion` in `build.gradle.kts` to the release version. Verify that the packaged module and MCP initialization report that version. Keep the final artifact's checksum with its test results.
 
 Use Java 17. On macOS, select it for the build if needed:
 
