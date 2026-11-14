@@ -35,3 +35,5 @@ dependencyResolutionManagement {
 rootProject.name = "ignition-mcp"
 
 include(":common", ":gateway")
+
+include(":designer-assistant")

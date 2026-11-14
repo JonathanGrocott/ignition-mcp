@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, dev/designer-assistant ]
   pull_request:
     branches: [ main, master, develop ]
 
@@ -29,7 +29,7 @@ jobs:
       run: chmod +x ./gradlew
 
     - name: Build module
-      run: ./gradlew clean test zipModule checksumModl
+      run: ./gradlew clean test :zipModule checksumModl :designer-assistant:zipModule
 
     - name: Sign module
       run: ./scripts/sign-module.sh
@@ -48,4 +48,21 @@ jobs:
           build/ignition-mcp.modl
           build/ignition-mcp.modl.sha256
           build/checksum/checksum.json
+        retention-days: 30
+
+    - name: Sign Designer Assistant
+      env:
+        MODULE_IN: designer-assistant/build/ignition-designer-assistant.unsigned.modl
+        MODULE_OUT: designer-assistant/build/ignition-designer-assistant.modl
+      run: |
+        ./scripts/sign-module.sh
+        sha256sum "${MODULE_OUT}" > "${MODULE_OUT}.sha256"
+
+    - name: Upload Designer Assistant artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ignition-designer-assistant-module
+        path: |
+          designer-assistant/build/ignition-designer-assistant.modl
+          designer-assistant/build/ignition-designer-assistant.modl.sha256
         retention-days: 30

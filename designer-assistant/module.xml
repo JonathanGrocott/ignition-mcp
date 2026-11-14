@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<modules>
+  <module>
+    <name>Ignition Designer Assistant</name>
+    <id>com.jg.ignition.designerassistant</id>
+    <version>${version}</version>
+    <description>Designer chat and reviewed Perspective view creation</description>
+    <requiredIgnitionVersion>${sdk}</requiredIgnitionVersion>
+    <requiredFrameworkVersion>8</requiredFrameworkVersion>
+    <freeModule>true</freeModule>
+    <hook scope="D">com.jg.ignition.assistant.DesignerAssistantHook</hook>
+    <jar scope="D">designer-assistant-${version}.jar</jar>
+    <jar scope="D">jackson-annotations-2.18.1.jar</jar>
+    <jar scope="D">jackson-core-2.18.1.jar</jar>
+    <jar scope="D">jackson-databind-2.18.1.jar</jar>
+  </module>
+</modules>

@@ -4,6 +4,8 @@ A native Ignition 8.3 Gateway module that lets MCP clients inspect Gateway data 
 
 **Start with the [illustrated User Guide](docs/USER_GUIDE.md).** It covers installation, API keys, read-only access, client connection, writes, change previews and troubleshooting.
 
+The optional [Designer Assistant](docs/DESIGNER_ASSISTANT.md) is a separate module for Ignition 8.3.9 with docked chat and reviewed Perspective view creation.
+
 ![Ignition MCP Overview in the Gateway](docs/images/gateway/overview.jpg)
 
 ## What it can do
