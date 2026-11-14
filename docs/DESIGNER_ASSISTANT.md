@@ -42,7 +42,7 @@ The Gateway module retains its own build and signing artifact. The companion's m
 
 ## Validation on 8.3.9
 
-The signed 0.1.0 companion and signed Ignition MCP 0.5.0 ran on an isolated official 8.3.9 Gateway. In native macOS Designer, the assistant dock generated a static Pump Overview view using a loopback model fixture. Preview returned a create plan. Apply created the view and displayed the Gateway's verified receipt. A separate live test exercised the companion's Java MCP client, including explicit plan status and readback. The SDK build, signed package, 104 Java tests, and nine existing Gateway UI tests passed.
+The signed 0.1.0 companion and signed Ignition MCP 0.5.0 ran on an isolated official 8.3.9 Gateway. In native macOS Designer, the assistant dock generated a static Pump Overview view using a loopback model fixture. Preview returned a create plan. Apply created the view and displayed the Gateway's verified receipt. File → Update Project pulled the new resource, and the view opened and rendered on the native Designer canvas. A separate live test exercised the companion's Java MCP client, including explicit plan status and readback. The SDK build, signed package, 104 Java tests, and nine existing Gateway UI tests passed.
 
 Codex CLI 0.167.1 completed a model turn through a synthetic local endpoint with a temporary named profile. The test verified that the configured MCP server did not launch. Automated HTTP fixtures cover the OpenAI-compatible and Anthropic request formats. Real enterprise sign-in, public model credentials, and the Windows and Linux Designer launch paths remain unverified.
 
