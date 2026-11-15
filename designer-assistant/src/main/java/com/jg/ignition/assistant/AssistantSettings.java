@@ -6,13 +6,11 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.IOException;
-import java.net.URI;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.prefs.Preferences;
 
-record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String mcpToken) {
-    private static final String DEFAULT_MCP_PATH = "/data/ignition-mcp/mcp";
+record AssistantSettings(ModelProvider.Settings provider) {
     private static final String OPENAI = "https://api.openai.com/v1/chat/completions";
     private static final String ANTHROPIC = "https://api.anthropic.com/v1/messages";
     private static final Preferences PREFS = Preferences.userRoot().node("com/jg/ignition/designer-assistant");
@@ -26,26 +24,7 @@ record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String
         }
         return new AssistantSettings(new ModelProvider.Settings(kind,
             PREFS.get("modelEndpoint", defaultEndpoint(kind)), PREFS.get("model", ""), "",
-            PREFS.get("credentialHeader", ""), PREFS.get("codex", ""), PREFS.get("profile", "")),
-            PREFS.get("mcpPath", DEFAULT_MCP_PATH), "");
-    }
-
-    URI mcpEndpoint(String gateway) throws IOException {
-        if (!mcpPath.matches("/data/[A-Za-z0-9_-]+/mcp")) {
-            throw new IOException("Use a Gateway path such as " + DEFAULT_MCP_PATH + ".");
-        }
-        URI address = HttpJson.endpoint(gateway);
-        String basePath = address.getPath();
-        if (basePath == null || basePath.equals("/")) {
-            basePath = "";
-        } else if (basePath.endsWith("/")) {
-            basePath = basePath.substring(0, basePath.length() - 1);
-        }
-        return HttpJson.endpoint(address.resolve(basePath + mcpPath).toString());
-    }
-
-    String gatewayCredential() {
-        return mcpToken.isBlank() ? System.getenv().getOrDefault("IGNITION_MCP_API_TOKEN", "") : mcpToken;
+            PREFS.get("credentialHeader", ""), PREFS.get("codex", ""), PREFS.get("profile", "")));
     }
 
     private static String defaultEndpoint(ModelProvider.Kind kind) {
@@ -75,8 +54,6 @@ record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String
         JTextField header = new JTextField(provider.credentialHeader(), 28);
         JTextField executable = new JTextField(provider.codexExecutable(), 28);
         JTextField profile = new JTextField(provider.codexProfile(), 28);
-        JTextField path = new JTextField(mcpPath, 28);
-        JPasswordField mcp = new JPasswordField(mcpToken, 28);
         JTextArea help = new JTextArea(3, 38);
         help.setEditable(false);
         help.setLineWrap(true);
@@ -93,8 +70,6 @@ record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String
         field(form, row++, "Credential header", header);
         field(form, row++, "Codex executable", executable);
         field(form, row++, "Trusted Codex profile", profile);
-        field(form, row++, "MCP path", path);
-        field(form, row++, "Ignition MCP API token", mcp);
         field(form, row, "", help);
         Runnable refresh = () -> {
             boolean cli = kind.getSelectedItem() == ModelProvider.Kind.CODEX_CLI;
@@ -120,18 +95,12 @@ record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String
             return Optional.empty();
         }
         ModelProvider.Kind selected = (ModelProvider.Kind) kind.getSelectedItem();
-        String newPath = path.getText().strip();
-        if (!newPath.matches("/data/[A-Za-z0-9_-]+/mcp")) {
-            JOptionPane.showMessageDialog(owner, "Use an MCP path such as " + DEFAULT_MCP_PATH + ".",
-                "Invalid MCP path", JOptionPane.ERROR_MESSAGE);
-            return Optional.empty();
-        }
         var updated = new ModelProvider.Settings(selected, endpoint.getText().strip(), model.getText().strip(),
             secret(key), header.getText().strip(), executable.getText().strip(), profile.getText().strip());
         try {
             PREFS.put("provider", selected.name());
             // URLs may contain query credentials. Persist only endpoints without a query or embedded user info.
-            URI uri = HttpJson.endpoint(updated.endpoint());
+            var uri = HttpJson.endpoint(updated.endpoint());
             PREFS.put("modelEndpoint", uri.getQuery() == null ? uri.toString() : defaultEndpoint(selected));
         } catch (IOException | IllegalArgumentException e) {
             PREFS.remove("modelEndpoint");
@@ -140,8 +109,7 @@ record AssistantSettings(ModelProvider.Settings provider, String mcpPath, String
         PREFS.put("credentialHeader", updated.credentialHeader());
         PREFS.put("codex", updated.codexExecutable());
         PREFS.put("profile", updated.codexProfile());
-        PREFS.put("mcpPath", newPath);
-        return Optional.of(new AssistantSettings(updated, newPath, secret(mcp)));
+        return Optional.of(new AssistantSettings(updated));
     }
 
     private static String secret(JPasswordField field) {

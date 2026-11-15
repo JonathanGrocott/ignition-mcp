@@ -1,9 +1,6 @@
 package com.jg.ignition.assistant;
 
-import com.inductiveautomation.ignition.client.gateway_interface.GatewayConnectionManager;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
-import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath;
-import com.inductiveautomation.ignition.common.resourcecollection.ResourceType;
 import com.inductiveautomation.ignition.designer.model.AbstractDesignerModuleHook;
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 import com.jidesoft.docking.DockContext;
@@ -20,15 +17,7 @@ public final class DesignerAssistantHook extends AbstractDesignerModuleHook {
     @Override
     public void startup(DesignerContext context, LicenseState activationState) throws Exception {
         Runnable create = () -> {
-            var views = new ResourceType(PerspectiveDraft.MODULE, "views");
-            panel = new AssistantPanel(context::getProjectName, () -> {
-                var connection = GatewayConnectionManager.getInstance();
-                var address = connection == null ? null : connection.getGatewayAddress();
-                return address == null ? "" : address.toString();
-            }, path -> {
-                var project = context.getProject();
-                return project != null && project.getResource(new ResourcePath(views, path)).isPresent();
-            });
+            panel = new AssistantPanel(new NativeAgentProject(context));
 
             DockableFrame dock = new DockableFrame("IgnitionDesignerAssistant");
             dock.setTitle("Designer Assistant");

@@ -1,6 +1,6 @@
 plugins { java }
 
-version = "0.2.0"
+version = "0.3.0"
 val designerSdkVersion = "8.3.9"
 val localSdk = providers.gradleProperty("assistantSdkDir")
     .orElse(providers.systemProperty("user.home").map { "$it/.local/share/ignition-sdk/$designerSdkVersion" })
