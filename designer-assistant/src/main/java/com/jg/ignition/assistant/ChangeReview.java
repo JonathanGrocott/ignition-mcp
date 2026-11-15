@@ -18,18 +18,22 @@ record ChangeReview(String title, String target, List<String> details, List<Sour
     static ChangeReview gateway(String tool, ObjectNode args, JsonNode preview,
                                 Callable<AssistantAgent.Applied> apply) {
         String title = describe(tool, args);
-        String target = preview.path("targetProject").asText(preview.path("project").asText(
-            args.path("path").asText(args.path("source").asText(""))));
+        String target = args.path("path").asText(args.path("source").asText(
+            preview.path("targetProject").asText(preview.path("project").asText(""))));
         var details = new ArrayList<String>();
         var sources = new ArrayList<Source>();
         if (preview.path("changes").isArray()) {
-            if (preview.path("changes").size() == 1) {
+            boolean singleResource = preview.path("changes").size() == 1;
+            if (singleResource) {
                 var change = preview.path("changes").get(0);
                 title = capitalize(change.path("action").asText()) + " " + resourceKind(change);
+                target = change.path("path").asText(target);
             }
             for (JsonNode change : preview.path("changes")) {
                 String path = change.path("path").asText();
-                details.add(capitalize(change.path("action").asText()) + " " + resourceKind(change) + " " + path);
+                if (!singleResource) {
+                    details.add(capitalize(change.path("action").asText()) + " " + resourceKind(change) + " " + path);
+                }
                 for (JsonNode file : change.path("fileChanges")) {
                     String filename = file.path("file").asText();
                     details.add("  " + filename + numberChange(file));
@@ -81,9 +85,6 @@ record ChangeReview(String title, String target, List<String> details, List<Sour
                     }
                 });
             }
-        }
-        if (target.isBlank() && details.isEmpty()) {
-            details.add("Review the proposed operation before applying.");
         }
         if (details.size() > MAX_DETAILS) {
             int omitted = details.size() - MAX_DETAILS;

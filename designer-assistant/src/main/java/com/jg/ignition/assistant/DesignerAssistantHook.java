@@ -31,8 +31,8 @@ public final class DesignerAssistantHook extends AbstractDesignerModuleHook {
             dock.getContext().setInitMode(DockContext.STATE_FRAMEDOCKED);
             dock.getContext().setInitSide(DockContext.DOCK_SIDE_EAST);
             dock.getContext().setInitIndex(0);
-            dock.setPreferredSize(new Dimension(420, 570));
-            dock.setDockedWidth(420);
+            dock.setPreferredSize(new Dimension(340, 520));
+            dock.setDockedWidth(340);
             dock.setContentPane(panel);
             frame = dock;
         };

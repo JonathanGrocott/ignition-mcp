@@ -7,11 +7,14 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JPanel;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.KeyStroke;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -108,6 +111,37 @@ class AssistantAgentTest {
     }
 
     @Test
+    void transcriptGivesWrappedTextAndActionsRoomAtNarrowWidths() throws Exception {
+        edt(() -> {
+            var transcript = new JPanel(new TranscriptLayout());
+            var message = new JTextArea("Review the proposed change to the memory tags and the existing configuration before applying.");
+            message.setLineWrap(true);
+            message.setWrapStyleWord(true);
+            transcript.add(message);
+            var actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            for (String label : List.of("Approve", "Dismiss", "Details")) {
+                var action = new JButton(label);
+                action.setPreferredSize(new Dimension(80, 24));
+                actions.add(action);
+            }
+            transcript.add(actions);
+
+            transcript.setSize(340, 360);
+            transcript.doLayout();
+            int wideTextHeight = message.getHeight();
+            assertEquals(24, actions.getHeight());
+
+            transcript.setSize(190, 360);
+            transcript.doLayout();
+            actions.doLayout();
+            assertTrue(message.getHeight() > wideTextHeight);
+            assertEquals(48, actions.getHeight());
+            assertEquals(24, actions.getComponent(2).getY());
+            return null;
+        });
+    }
+
+    @Test
     void draftRequiresAnExplicitValidLocationAndUniqueSupportedMembers() throws Exception {
         ObjectNode args = (ObjectNode) JSON.readTree("""
             {"name":"Drive","folder":"Packaging/Line 1","members":[{"name":"Running","dataType":"Boolean"}]}
@@ -182,7 +216,7 @@ class AssistantAgentTest {
 
     private static Stream<JButton> buttons(AssistantPanel dock, String title) {
         return components(dock).filter(JButton.class::isInstance).map(JButton.class::cast)
-            .filter(button -> title.equals(button.getText()));
+            .filter(button -> button.isVisible() && title.equals(button.getAccessibleContext().getAccessibleName()));
     }
 
     private static Stream<Component> components(Component root) {

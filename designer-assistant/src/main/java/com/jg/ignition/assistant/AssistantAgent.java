@@ -18,7 +18,7 @@ import static com.jg.ignition.assistant.AssistantJson.JSON;
 
 final class AssistantAgent {
     enum Mode {
-        REVIEW("Ask before changes"), AUTO("Auto-apply");
+        REVIEW("Review"), AUTO("Auto-apply");
         private final String label;
         Mode(String label) { this.label = label; }
         @Override public String toString() { return label; }
