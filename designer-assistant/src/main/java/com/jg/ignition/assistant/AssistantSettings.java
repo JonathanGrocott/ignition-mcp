@@ -8,6 +8,9 @@ import java.awt.Insets;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.prefs.Preferences;
 
 record AssistantSettings(ModelProvider.Settings provider) {
@@ -60,6 +63,19 @@ record AssistantSettings(ModelProvider.Settings provider) {
         help.setWrapStyleWord(true);
         help.setOpaque(false);
         help.setFont(UIManager.getFont("Label.font"));
+        JButton test = new JButton("Test connection");
+        JTextArea testStatus = new JTextArea(2, 29);
+        testStatus.setEditable(false);
+        testStatus.setLineWrap(true);
+        testStatus.setWrapStyleWord(true);
+        testStatus.setOpaque(false);
+        testStatus.setFont(UIManager.getFont("Label.font"));
+        testStatus.getAccessibleContext().setAccessibleName("Model connection result");
+
+        Supplier<ModelProvider.Settings> current = () -> new ModelProvider.Settings(
+            (ModelProvider.Kind) kind.getSelectedItem(), endpoint.getText().strip(), model.getText().strip(),
+            secret(key), header.getText().strip(), executable.getText().strip(), profile.getText().strip());
+        var check = new AtomicReference<SwingWorker<Void, Void>>();
 
         JPanel form = new JPanel(new GridBagLayout());
         int row = 0;
@@ -70,7 +86,9 @@ record AssistantSettings(ModelProvider.Settings provider) {
         field(form, row++, "Credential header", header);
         field(form, row++, "Codex executable", executable);
         field(form, row++, "Trusted Codex profile", profile);
-        field(form, row, "", help);
+        field(form, row++, "", help);
+        field(form, row++, "", test);
+        field(form, row, "", testStatus);
         Runnable refresh = () -> {
             boolean cli = kind.getSelectedItem() == ModelProvider.Kind.CODEX_CLI;
             endpoint.setEnabled(!cli);
@@ -83,20 +101,55 @@ record AssistantSettings(ModelProvider.Settings provider) {
                 : "Use the full model URL. Credentials can be entered here or as env:VARIABLE. Leave the header blank for the provider default.");
         };
         kind.addActionListener(event -> {
-            String current = endpoint.getText().strip();
-            if (current.isEmpty() || current.equals(OPENAI) || current.equals(ANTHROPIC)) {
-                endpoint.setText(defaultEndpoint((ModelProvider.Kind) kind.getSelectedItem()));
-            }
+            endpoint.setText(defaultEndpoint((ModelProvider.Kind) kind.getSelectedItem()));
+            model.setText("");
+            key.setText("");
+            header.setText("");
+            testStatus.setText("");
             refresh.run();
         });
+        test.addActionListener(event -> {
+            ModelProvider.Settings candidate = current.get();
+            test.setEnabled(false);
+            testStatus.setText("Sending a connection check with no project data…");
+            var worker = new SwingWorker<Void, Void>() {
+                @Override protected Void doInBackground() throws Exception {
+                    ModelProvider.checkConnection(candidate);
+                    return null;
+                }
+
+                @Override protected void done() {
+                    if (isCancelled()) {
+                        return;
+                    }
+                    try {
+                        get();
+                        testStatus.setText("Reply verified from " + candidate.connectionDescription());
+                    } catch (ExecutionException e) {
+                        testStatus.setText(e.getCause() instanceof IOException
+                            ? e.getCause().getMessage() : "The connection check failed.");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        testStatus.setText("The connection check was interrupted.");
+                    } finally {
+                        test.setEnabled(true);
+                    }
+                }
+            };
+            check.set(worker);
+            worker.execute();
+        });
         refresh.run();
-        if (JOptionPane.showConfirmDialog(owner, form, "Designer Assistant Settings",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+        int result = JOptionPane.showConfirmDialog(owner, form, "Designer Assistant Settings",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (check.get() != null && !check.get().isDone()) {
+            check.get().cancel(true);
+        }
+        if (result != JOptionPane.OK_OPTION) {
             return Optional.empty();
         }
-        ModelProvider.Kind selected = (ModelProvider.Kind) kind.getSelectedItem();
-        var updated = new ModelProvider.Settings(selected, endpoint.getText().strip(), model.getText().strip(),
-            secret(key), header.getText().strip(), executable.getText().strip(), profile.getText().strip());
+        var updated = current.get();
+        ModelProvider.Kind selected = updated.kind();
         try {
             PREFS.put("provider", selected.name());
             // URLs may contain query credentials. Persist only endpoints without a query or embedded user info.

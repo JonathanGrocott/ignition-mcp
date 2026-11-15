@@ -30,6 +30,26 @@ final class ModelProvider {
         // A Settings instance can carry a provider credential.
         @Override
         public String toString() { return "ModelProvider.Settings[" + kind + "]"; }
+
+        String displayName() {
+            return switch (kind) {
+                case CODEX_CLI -> model.isBlank() ? "Codex CLI" : "Codex · " + model;
+                case OPENAI_COMPATIBLE -> model.isBlank() ? "OpenAI-compatible" : model;
+                case ANTHROPIC -> model.isBlank() ? "Anthropic" : model;
+            };
+        }
+
+        String connectionDescription() {
+            if (kind == Kind.CODEX_CLI) {
+                return "Uses the installed Codex CLI" + (codexProfile.isBlank() ? "." : " with profile " + codexProfile + ".");
+            }
+            try {
+                var url = HttpJson.endpoint(endpoint);
+                return displayName() + " at " + url.getHost() + (url.getPort() < 0 ? "" : ":" + url.getPort());
+            } catch (IOException e) {
+                return "Model URL needs configuration.";
+            }
+        }
     }
 
     record Message(String role, String text) {
@@ -59,6 +79,14 @@ final class ModelProvider {
     );
 
     private ModelProvider() {}
+
+    static void checkConnection(Settings settings) throws IOException, InterruptedException {
+        String reply = complete(settings, List.of(new Message("user", "Run the model connection check.")),
+            "This is a connection check. Reply with exactly DESIGNER_READY and no other text.");
+        if (!"DESIGNER_READY".equals(reply)) {
+            throw new IOException("The provider responded, but the reply did not match the connection check.");
+        }
+    }
 
     static String complete(Settings settings, List<Message> history, String system)
         throws IOException, InterruptedException {

@@ -9,8 +9,10 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.KeyStroke;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -59,7 +61,17 @@ class AssistantAgentTest {
             "http://127.0.0.1:" + model.getAddress().getPort(), "qa", "", "", "", ""));
         AssistantPanel dock = edt(() -> new AssistantPanel(project, settings));
         try {
-            send(dock, "Inspect the scripts");
+            edt(() -> {
+                JTextArea input = composer(dock);
+                input.setText("First line");
+                input.setCaretPosition(input.getDocument().getLength());
+                useKey(input, "shift ENTER");
+                assertEquals("First line\n", input.getText());
+                assertTrue(project.reads.isEmpty());
+                input.setText("Inspect the scripts");
+                useKey(input, "ENTER");
+                return null;
+            });
             waitFor(() -> hasText(dock, "The project has the script Utilities/Runtime."));
             assertEquals(List.of("list_project_resources"), project.reads);
 
@@ -135,12 +147,21 @@ class AssistantAgentTest {
 
     private static void send(AssistantPanel dock, String input) throws Exception {
         edt(() -> {
-            components(dock).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
-                .filter(area -> "Message for Designer Assistant".equals(area.getAccessibleContext().getAccessibleName()))
-                .findFirst().orElseThrow().setText(input);
+            composer(dock).setText(input);
             return null;
         });
         click(dock, "Send");
+    }
+
+    private static JTextArea composer(AssistantPanel dock) {
+        return components(dock).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+            .filter(area -> "Message for Designer Assistant".equals(area.getAccessibleContext().getAccessibleName()))
+            .findFirst().orElseThrow();
+    }
+
+    private static void useKey(JTextArea input, String key) {
+        Object binding = input.getInputMap().get(KeyStroke.getKeyStroke(key));
+        input.getActionMap().get(binding).actionPerformed(new ActionEvent(input, ActionEvent.ACTION_PERFORMED, key));
     }
 
     private static boolean hasText(AssistantPanel dock, String value) throws Exception {

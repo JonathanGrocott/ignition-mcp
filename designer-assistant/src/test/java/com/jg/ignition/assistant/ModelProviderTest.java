@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -54,6 +55,26 @@ class ModelProviderTest {
             assertEquals("user", server.data.get().at("/messages/0/role").asText());
             assertTrue(server.data.get().path("max_tokens").asInt() > 0);
         }
+    }
+
+    @Test
+    void modelConnectionCheckSendsOnlyASyntheticPromptAndChecksItsReply() throws Exception {
+        try (MockEndpoint server = new MockEndpoint(
+            "{\"choices\":[{\"message\":{\"content\":\"DESIGNER_READY\"}}]}", "Authorization")) {
+            ModelProvider.checkConnection(httpSettings(server));
+            var messages = server.data.get().path("messages");
+            assertEquals(2, messages.size());
+            assertEquals("Run the model connection check.", messages.get(1).path("content").asText());
+        }
+        try (MockEndpoint server = new MockEndpoint(
+            "{\"choices\":[{\"message\":{\"content\":\"canned response\"}}]}", "Authorization")) {
+            assertThrows(IOException.class, () -> ModelProvider.checkConnection(httpSettings(server)));
+        }
+    }
+
+    private static ModelProvider.Settings httpSettings(MockEndpoint server) {
+        return new ModelProvider.Settings(ModelProvider.Kind.OPENAI_COMPATIBLE,
+            server.url(), "local-model", "", "", "", "");
     }
 
     @Test

@@ -1,8 +1,10 @@
 package com.jg.ignition.assistant;
 
 import javax.swing.*;
-import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.DefaultEditorKit;
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -23,11 +25,14 @@ final class AssistantPanel extends JPanel {
     private final JButton settingsButton = new JButton("Settings");
     private final JButton newChat = new JButton("New chat");
     private final JButton send = new JButton("Send");
+    private final JLabel modelLabel = new JLabel();
     private final JComboBox<AssistantAgent.Mode> permission = new JComboBox<>(AssistantAgent.Mode.values());
     private final Cards cards = new Cards();
     private final JScrollPane messages = new JScrollPane(cards);
-    private final JTextArea prompt = new JTextArea(3, 10);
+    private final JTextArea prompt = new Composer();
     private final JLabel status = new JLabel(" ");
+    private final JLabel activity = new JLabel();
+    private final JPanel activityRow = row(activity);
     private final List<ModelProvider.Message> history = new ArrayList<>();
 
     private AssistantSettings settings;
@@ -40,7 +45,7 @@ final class AssistantPanel extends JPanel {
     }
 
     AssistantPanel(AgentProject project, AssistantSettings initialSettings) {
-        super(new BorderLayout(0, 10));
+        super(new BorderLayout(0, 8));
         this.project = project;
         this.agent = new AssistantAgent(project);
         this.settings = initialSettings;
@@ -63,17 +68,31 @@ final class AssistantPanel extends JPanel {
         var header = new JPanel(new BorderLayout(4, 4));
         header.setOpaque(false);
         header.add(top, BorderLayout.CENTER);
-        header.add(row(modeLabel, permission), BorderLayout.SOUTH);
+        var context = new JPanel(new BorderLayout(4, 0));
+        context.setOpaque(false);
+        modelLabel.setForeground(palette.muted);
+        modelLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
+        context.add(modelLabel, BorderLayout.CENTER);
+        context.add(row(modeLabel, permission), BorderLayout.EAST);
+        header.add(context, BorderLayout.SOUTH);
+        styleButton(newChat);
+        styleButton(settingsButton);
+        showProvider();
         add(header, BorderLayout.NORTH);
 
         cards.setLayout(new BoxLayout(cards, BoxLayout.Y_AXIS));
         cards.setBackground(palette.bg);
-        cards.setBorder(new EmptyBorder(0, 0, 6, 5));
+        cards.setBorder(new EmptyBorder(8, 0, 4, 8));
         messages.setBorder(null);
         messages.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         messages.getViewport().setBackground(palette.bg);
         messages.getVerticalScrollBar().setUnitIncrement(18);
         messages.getAccessibleContext().setAccessibleName("Designer Assistant conversation");
+        activity.setForeground(palette.muted);
+        activityRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        activityRow.setBorder(new EmptyBorder(1, 3, 8, 3));
+        activityRow.setVisible(false);
+        cards.add(activityRow);
         add(messages, BorderLayout.CENTER);
 
         prompt.setLineWrap(true);
@@ -82,21 +101,39 @@ final class AssistantPanel extends JPanel {
         prompt.setBackground(palette.panel);
         prompt.setForeground(palette.text);
         prompt.setCaretColor(palette.text);
+        prompt.setBorder(BorderFactory.createEmptyBorder());
         prompt.getAccessibleContext().setAccessibleName("Message for Designer Assistant");
-        prompt.getInputMap().put(KeyStroke.getKeyStroke("ctrl ENTER"), "send");
-        prompt.getInputMap().put(KeyStroke.getKeyStroke("meta ENTER"), "send");
-        prompt.getActionMap().put("send", new AbstractAction() {
+        var keys = prompt.getInputMap();
+        keys.put(KeyStroke.getKeyStroke("ENTER"), "sendMessage");
+        keys.put(KeyStroke.getKeyStroke("shift ENTER"), DefaultEditorKit.insertBreakAction);
+        keys.put(KeyStroke.getKeyStroke("ctrl ENTER"), "sendMessage");
+        keys.put(KeyStroke.getKeyStroke("meta ENTER"), "sendMessage");
+        prompt.getActionMap().put("sendMessage", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { if (send.isEnabled()) send(); }
         });
+        prompt.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { composerChanged(); }
+            @Override public void removeUpdate(DocumentEvent event) { composerChanged(); }
+            @Override public void changedUpdate(DocumentEvent event) { composerChanged(); }
+        });
         var input = new JScrollPane(prompt);
-        input.setBorder(BorderFactory.createLineBorder(palette.border));
+        input.setBorder(null);
+        input.setOpaque(false);
+        input.getViewport().setOpaque(false);
+        var composer = new Surface(palette.panel, palette.border, 16);
+        composer.setLayout(new BorderLayout(4, 2));
+        composer.setBorder(new EmptyBorder(6, 6, 5, 6));
+        composer.add(input, BorderLayout.CENTER);
+        send.setToolTipText("Send (Enter)");
+        styleButton(send);
+        composer.add(row(FlowLayout.TRAILING, send), BorderLayout.SOUTH);
         status.setForeground(palette.muted);
         status.getAccessibleContext().setAccessibleName("Assistant status");
-        var compose = new JPanel(new BorderLayout(5, 5));
+        status.setBorder(new EmptyBorder(1, 5, 0, 5));
+        var compose = new JPanel(new BorderLayout(4, 3));
         compose.setOpaque(false);
         compose.add(status, BorderLayout.NORTH);
-        compose.add(input, BorderLayout.CENTER);
-        compose.add(row(send), BorderLayout.SOUTH);
+        compose.add(composer, BorderLayout.CENTER);
         add(compose, BorderLayout.SOUTH);
 
         send.addActionListener(event -> send());
@@ -106,6 +143,7 @@ final class AssistantPanel extends JPanel {
                 clear();
             }
             settings = value;
+            showProvider();
             setStatus("Model settings saved.");
         }));
         permission.addActionListener(event -> {
@@ -116,6 +154,21 @@ final class AssistantPanel extends JPanel {
             }
         });
         greet();
+        updateControls();
+    }
+
+    private void composerChanged() {
+        int rows = Math.min(5, Math.max(2, prompt.getLineCount()));
+        if (prompt.getRows() != rows) {
+            prompt.setRows(rows);
+            revalidate();
+        }
+        updateControls();
+    }
+
+    private void showProvider() {
+        modelLabel.setText(settings.provider().displayName());
+        modelLabel.setToolTipText(settings.provider().connectionDescription());
     }
 
     private void greet() {
@@ -142,6 +195,8 @@ final class AssistantPanel extends JPanel {
         }
         prompt.setText("");
         message("You", question, true);
+        scrollToEnd();
+        prompt.requestFocusInWindow();
         remember("user", question);
         var input = List.copyOf(history);
         var model = settings.provider();
@@ -172,6 +227,8 @@ final class AssistantPanel extends JPanel {
         }
         JButton approve = new JButton("Approve creation");
         JButton dismiss = new JButton("Dismiss");
+        styleButton(approve);
+        styleButton(dismiss);
         JLabel reviewState = new JLabel(" ");
         reviewState.setForeground(palette.muted);
         JPanel actions = row(approve, dismiss);
@@ -215,6 +272,7 @@ final class AssistantPanel extends JPanel {
         line(card, "UDT created", palette.green, true);
         line(card, result.summary(), palette.text, false);
         JButton show = new JButton("Show in Tag Browser");
+        styleButton(show);
         show.addActionListener(event -> {
             try {
                 project.showUdt(result.draft());
@@ -240,6 +298,7 @@ final class AssistantPanel extends JPanel {
         history.clear();
         resolvePending("Dismissed.");
         cards.removeAll();
+        cards.add(activityRow);
         permission.setSelectedItem(AssistantAgent.Mode.REVIEW);
         greet();
         setStatus(" ");
@@ -258,18 +317,34 @@ final class AssistantPanel extends JPanel {
     }
 
     private void message(String heading, String body, boolean fromUser) {
-        JPanel card = card(fromUser ? palette.accentBg : palette.panel);
-        line(card, heading, fromUser ? palette.accent : palette.muted, true);
+        JPanel card = surface(fromUser ? palette.accentBg : palette.bg, null);
+        if (!fromUser) {
+            line(card, heading, palette.muted, true);
+        }
         line(card, body, palette.text, false);
-        addCard(card);
+        if (fromUser) {
+            card.getAccessibleContext().setAccessibleName("Your message");
+            var inset = new JPanel(new BorderLayout());
+            inset.setOpaque(false);
+            inset.setBorder(new EmptyBorder(0, 34, 0, 0));
+            inset.setAlignmentX(Component.LEFT_ALIGNMENT);
+            inset.add(card, BorderLayout.CENTER);
+            addCard(inset);
+        } else {
+            addCard(card);
+        }
     }
 
     private JPanel card(Color background) {
-        JPanel card = new JPanel();
+        return surface(background, palette.border);
+    }
+
+    private static JPanel surface(Color background, Color border) {
+        JPanel card = new Surface(background, border, 14);
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBackground(background);
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setBorder(new CompoundBorder(BorderFactory.createLineBorder(palette.border), new EmptyBorder(7, 10, 7, 10)));
+        card.setBorder(new EmptyBorder(7, 11, 7, 11));
         return card;
     }
 
@@ -279,6 +354,7 @@ final class AssistantPanel extends JPanel {
         label.setLineWrap(true);
         label.setWrapStyleWord(true);
         label.setOpaque(false);
+        label.setBackground(parent.getBackground());
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         label.setForeground(color);
         label.setFont(UIManager.getFont("Label.font").deriveFont(heading ? Font.BOLD : Font.PLAIN));
@@ -287,24 +363,58 @@ final class AssistantPanel extends JPanel {
     }
 
     private void addCard(JPanel card) {
-        cards.add(card);
-        cards.add(Box.createVerticalStrut(8));
-        while (cards.getComponentCount() > MAX_CARDS * 2) {
+        boolean follow = nearEnd();
+        int last = cards.getComponentCount() - 1;
+        cards.add(card, last);
+        cards.add(Box.createVerticalStrut(8), last + 1);
+        while (cards.getComponentCount() > MAX_CARDS * 2 + 1) {
             cards.remove(0);
             cards.remove(0);
         }
         cards.revalidate();
         cards.repaint();
-        SwingUtilities.invokeLater(() -> messages.getVerticalScrollBar().setValue(messages.getVerticalScrollBar().getMaximum()));
+        if (follow) {
+            scrollToEnd();
+        }
     }
 
     private static JPanel row(JComponent... components) {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+        return row(FlowLayout.LEADING, components);
+    }
+
+    private static JPanel row(int alignment, JComponent... components) {
+        JPanel row = new JPanel(new FlowLayout(alignment, 4, 0));
         row.setOpaque(false);
         for (JComponent component : components) {
             row.add(component);
         }
         return row;
+    }
+
+    private static void styleButton(JButton button) {
+        button.setMargin(new Insets(3, 9, 3, 9));
+    }
+
+    private boolean nearEnd() {
+        var bar = messages.getVerticalScrollBar();
+        return bar.getMaximum() - bar.getValue() - bar.getVisibleAmount() < 36;
+    }
+
+    private void scrollToEnd() {
+        SwingUtilities.invokeLater(() -> {
+            var bar = messages.getVerticalScrollBar();
+            bar.setValue(bar.getMaximum());
+        });
+    }
+
+    private void showActivity(String value) {
+        boolean follow = nearEnd();
+        activity.setText(value);
+        activityRow.setVisible(!value.isBlank());
+        cards.revalidate();
+        if (follow) {
+            scrollToEnd();
+        }
     }
 
     private void setStatus(String text) {
@@ -317,8 +427,8 @@ final class AssistantPanel extends JPanel {
         boolean idle = !closed && worker == null;
         settingsButton.setEnabled(idle);
         newChat.setEnabled(idle);
-        send.setEnabled(idle);
-        prompt.setEditable(idle);
+        send.setEnabled(idle && !prompt.getText().isBlank());
+        prompt.setEditable(!closed);
         permission.setEnabled(idle && pending == null);
         if (pending != null) {
             pending.approve().setEnabled(idle);
@@ -331,7 +441,7 @@ final class AssistantPanel extends JPanel {
             @Override protected T doInBackground() throws Exception { return action.apply(this::publish).call(); }
             @Override protected void process(List<String> updates) {
                 if (worker == this && !updates.isEmpty()) {
-                    setStatus(updates.get(updates.size() - 1));
+                    showActivity(updates.get(updates.size() - 1));
                 }
             }
             @Override protected void done() {
@@ -339,6 +449,7 @@ final class AssistantPanel extends JPanel {
                 if (closed) {
                     return;
                 }
+                showActivity("");
                 try {
                     success.accept(get());
                 } catch (ExecutionException e) {
@@ -354,7 +465,8 @@ final class AssistantPanel extends JPanel {
                 }
             }
         };
-        setStatus(label);
+        setStatus(" ");
+        showActivity(label);
         updateControls();
         worker.execute();
     }
@@ -371,6 +483,49 @@ final class AssistantPanel extends JPanel {
     }
 
     private record Pending(UdtDraft draft, JButton approve, JButton dismiss, JLabel state) {}
+
+    private final class Composer extends JTextArea {
+        Composer() { super(2, 10); }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (getDocument().getLength() == 0) {
+                var insets = getInsets();
+                graphics.setColor(palette.muted);
+                graphics.drawString("Message Designer Assistant", insets.left + 1,
+                    insets.top + graphics.getFontMetrics().getAscent());
+            }
+        }
+    }
+
+    private static final class Surface extends JPanel {
+        private final Color fill;
+        private final Color stroke;
+        private final int radius;
+
+        Surface(Color fill, Color stroke, int radius) {
+            this.fill = fill;
+            this.stroke = stroke;
+            this.radius = radius;
+            setOpaque(false);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            var g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(fill);
+                g.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+                if (stroke != null) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, radius, radius);
+                }
+            } finally {
+                g.dispose();
+            }
+        }
+    }
 
     private static final class Cards extends JPanel implements Scrollable {
         @Override public Dimension getPreferredScrollableViewportSize() { return new Dimension(390, 420); }
