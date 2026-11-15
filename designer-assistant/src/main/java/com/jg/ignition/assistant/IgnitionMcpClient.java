@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 import static com.jg.ignition.assistant.AssistantJson.JSON;
 
@@ -52,28 +55,51 @@ final class IgnitionMcpClient {
     }
 
     private JsonNode call(String name, ObjectNode args) throws IOException, InterruptedException {
+        ToolReply reply = invoke(name, args);
+        if (reply.error()) {
+            throw new IOException(reply.message().substring(0, Math.min(400, reply.message().length())));
+        }
+        if (!reply.data().isObject()) {
+            throw new IOException("Gateway did not return structured change data. Check Ignition MCP 0.5.0 or later.");
+        }
+        return reply.data();
+    }
+
+    List<McpTool> catalog() throws IOException, InterruptedException {
         try {
-            return executeTool(name, args);
+            initialize();
+            JsonNode definitions = result(request("tools/list", JSON.createObjectNode(), false)).path("tools");
+            if (!definitions.isArray()) {
+                throw new IOException("Gateway did not return an MCP tool catalog.");
+            }
+            List<McpTool> tools = new ArrayList<>();
+            for (JsonNode entry : definitions) {
+                String name = entry.path("name").asText();
+                if (McpTool.validName(name) && entry.path("inputSchema").isObject()) {
+                    tools.add(new McpTool(name, entry.path("description").asText(), entry.path("inputSchema")));
+                }
+            }
+            tools.sort(Comparator.comparing(McpTool::name));
+            return List.copyOf(tools);
         } finally {
             closeSession();
         }
     }
 
-    private JsonNode executeTool(String name, ObjectNode args) throws IOException, InterruptedException {
-        initialize();
-        ObjectNode params = JSON.createObjectNode().put("name", name);
-        params.set("arguments", args);
-        HttpJson.Response response = request("tools/call", params, false);
-        JsonNode responseResult = result(response);
-        JsonNode data = responseResult.path("structuredContent");
-        if (responseResult.path("isError").asBoolean()) {
-            String message = responseResult.path("content").path(0).path("text").asText("Gateway returned a tool error.");
-            throw new IOException(message.substring(0, Math.min(400, message.length())));
+    ToolReply invoke(String name, ObjectNode args) throws IOException, InterruptedException {
+        try {
+            initialize();
+            ObjectNode params = JSON.createObjectNode().put("name", name);
+            params.set("arguments", args);
+            JsonNode response = result(request("tools/call", params, false));
+            if (!response.path("content").isArray() && !response.path("structuredContent").isObject()) {
+                throw new IOException("Gateway did not return an MCP tool result.");
+            }
+            return new ToolReply(response.path("isError").asBoolean(), response.path("structuredContent"),
+                response.path("content").path(0).path("text").asText("Gateway returned a tool result."));
+        } finally {
+            closeSession();
         }
-        if (!data.isObject()) {
-            throw new IOException("Gateway did not return structured change data. Check Ignition MCP 0.5.0 or later.");
-        }
-        return data;
     }
 
     private void initialize() throws IOException, InterruptedException {
@@ -82,7 +108,7 @@ final class IgnitionMcpClient {
         }
         ObjectNode params = JSON.createObjectNode().put("protocolVersion", PROTOCOL);
         params.putObject("capabilities");
-        params.putObject("clientInfo").put("name", "Ignition Designer Assistant").put("version", "0.1.0");
+        params.putObject("clientInfo").put("name", "Ignition Designer Assistant").put("version", "0.2.0");
         HttpJson.Response response = request("initialize", params, false);
         result(response);
         session = response.headers().firstValue("Mcp-Session-Id")
@@ -122,7 +148,7 @@ final class IgnitionMcpClient {
         if (session != null) {
             request.header("Mcp-Session-Id", session);
         }
-        return HttpJson.send(request.build(), 45);
+        return HttpJson.send(request.build(), 45, 4_194_304);
     }
 
     private JsonNode result(HttpJson.Response response) throws IOException {
@@ -132,7 +158,10 @@ final class IgnitionMcpClient {
             throw new IOException("Unexpected MCP response ID.");
         }
         if (envelope.hasNonNull("error")) {
-            throw new IOException(envelope.path("error").path("message").asText("Gateway returned an MCP error."));
+            JsonNode error = envelope.path("error");
+            String code = error.path("data").path("code").asText();
+            String message = error.path("message").asText("Gateway returned an MCP error.");
+            throw new IOException(code.isBlank() ? message : code + " — " + message);
         }
         return envelope.path("result");
     }
@@ -147,4 +176,6 @@ final class IgnitionMcpClient {
                 boolean writesEnabled, JsonNode response) {
         boolean expired() { return expiresAt <= Instant.now().toEpochMilli(); }
     }
+
+    record ToolReply(boolean error, JsonNode data, String message) {}
 }

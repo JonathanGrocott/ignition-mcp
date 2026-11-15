@@ -40,8 +40,12 @@ final class HttpJson {
     }
 
     static Response send(HttpRequest request, int seconds) throws IOException, InterruptedException {
+        return send(request, seconds, MAX_RESPONSE);
+    }
+
+    static Response send(HttpRequest request, int seconds, int maxResponse) throws IOException, InterruptedException {
         // Use a bounded subscriber so timeout and interruption also cover the response body.
-        var pending = CLIENT.sendAsync(request, ignored -> new BoundedBody());
+        var pending = CLIENT.sendAsync(request, ignored -> new BoundedBody(maxResponse));
         try {
             HttpResponse<byte[]> response = pending.get(seconds, java.util.concurrent.TimeUnit.SECONDS);
             return new Response(response.statusCode(), response.headers(), response.body());
@@ -63,9 +67,12 @@ final class HttpJson {
     }
 
     private static final class BoundedBody implements HttpResponse.BodySubscriber<byte[]> {
+        private final int maxResponse;
         private final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         private final java.util.concurrent.CompletableFuture<byte[]> body = new java.util.concurrent.CompletableFuture<>();
         private java.util.concurrent.Flow.Subscription subscription;
+
+        BoundedBody(int maxResponse) { this.maxResponse = maxResponse; }
 
         @Override public java.util.concurrent.CompletionStage<byte[]> getBody() { return body; }
 
@@ -76,7 +83,7 @@ final class HttpJson {
 
         @Override public void onNext(java.util.List<java.nio.ByteBuffer> items) {
             for (var item : items) {
-                if (item.remaining() > MAX_RESPONSE - bytes.size()) {
+                if (item.remaining() > maxResponse - bytes.size()) {
                     subscription.cancel();
                     body.completeExceptionally(new IOException("HTTP response exceeded the size limit."));
                     return;

@@ -14,16 +14,14 @@ record PerspectiveDraft(String path, String viewJson) {
     static final String MODULE = "com.inductiveautomation.perspective";
     private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_. -]{0,63}");
     static final String SPEC = """
-        Reply with exactly one JSON object with these fields:
-        {"reply":"short reply to the Designer user","view":null}
-        If the user requests a new Perspective view, set view to an object:
+        If the user requests a simple new Perspective view, you can set view to an object:
         {"title":"heading","subtitle":"optional subheading or empty string","sections":[
           {"heading":"section heading","body":"section text"}
         ]}
         Use 1–6 sections. Titles and headings max 80 characters, subtitle max 160,
         section text max 240. This creates a static flex layout with labels.
-        Do not claim to create bindings, scripts, pages, controls or live data.
-        If these are requested, explain that the draft uses plain text placeholders.
+        The simple view draft uses plain text placeholders and cannot include bindings, scripts or controls.
+        For more advanced resources, use an available MCP tool with native resource data.
         The user chooses the view's resource path separately in Designer.
         """;
 

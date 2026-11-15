@@ -1,6 +1,6 @@
-# Designer Assistant 0.1.0
+# Designer Assistant 0.2.0
 
-Designer Assistant is a separate module for Ignition **8.3.9**. Its dock can chat with a configured model and create a new Perspective view in the current Designer project through **Ignition MCP 0.5.0**.
+Designer Assistant is a separate module for Ignition **8.3.9**. Its dock can chat with a configured model, create a simple Perspective view, and use the **Ignition MCP 0.5.0** catalog for project, tag, and Gateway work.
 
 ## Install and try it
 
@@ -11,7 +11,17 @@ Designer Assistant is a separate module for Ignition **8.3.9**. Its dock can cha
 5. On **View preview**, enter an unused path such as `Assistant/PumpOverview` and click **Preview view**. Review the view JSON and Gateway plan. **Apply new view** submits the reviewed plan with its stored ID and hash. Enable the Gateway's authorized-write setting and run Preview again if it reports read-only mode.
 6. Refresh the Designer project to open the new view. If the Apply result is unclear, use **Check status** while the plan is available. A Gateway restart or plan expiry can remove the receipt. Check the view path before preparing another preview.
 
-The generator supports a flex container with text labels and up to six sections. The model proposes text in a small JSON format and the module generates the native view. The preview displays the complete generated JSON before Apply. The operation always uses `create` and checks for existing resources in both the Designer project and the Gateway. The release creates a view resource without adding a Perspective page route. Live bindings, scripts, calls to user-authored tools, and updates to open or saved views are outside this version.
+The simple generator supports a flex container with text labels and up to six sections. It creates a new native view without a page route, bindings, or scripts. Use **MCP tools** and an authorized native project resource bundle for edits, imports, page configuration, or more advanced view resources.
+
+## Work with MCP tools
+
+- Open **MCP tools → Load tools**, choose a tool, and edit its JSON arguments. The result pane initially shows the Gateway's input schema. Fields for an applicable project default to the open project. Alternatively, ask Chat to propose a tool call and review it in the same tab.
+- **Run read** calls the selected read tool. **Use result in chat** attaches a small result to the next message. Review the result before attaching it because your configured provider will receive it with the prompt.
+- **Preview call** either creates or looks up a stored project change plan, or calls a legacy tool with `commit: false`. The review shows the Gateway response and the request that **Apply reviewed call** will submit. Changing the arguments, selected tool, or settings invalidates the review. The model cannot execute the proposed call.
+- Prefer stored project change plans for native view, script, query, or other resource bundles. They preserve the reviewed content and enforce a conflict check against the Gateway's current resource. Legacy writes, including tag and UDT definitions, use the Gateway's dry-run and commit contract. A dry-run does not lock the resource or guarantee that the commit will succeed. Save or reconcile relevant unsaved Designer edits before applying a Gateway project change, then use **File → Update Project**.
+- Gateway policies still apply per tool and target. The demo view-only token cannot write scripts, queries, or tags. Named-query execution, tag value writes, and alarm acknowledgment are separate tool permissions. Unknown tool contracts are visible in the catalog and cannot be run from the dock until the module supports them.
+
+Examples include “Create a Python project library at Assistant/Formatting”, “Draft a scalar named query at Assistant/Count for the Reporting database”, and “Create a Motor UDT under [default]_types_/Assistant with a Boolean Running member”. For precise operations, select the tool directly and fill in its arguments.
 
 ## Model and authentication options
 
@@ -25,7 +35,7 @@ The generator supports a flex container with text labels and up to six sections.
 
 The HTTP provider can use a bearer credential, an API key in a custom header, or no authentication. Enter the credential for this session or use `env:VARIABLE_NAME` to read it from the Designer process environment. HTTP adapters do not initiate a browser SSO flow or refresh an enterprise access token. Use an existing Codex profile for managed CLI sign-in, or supply a current credential for an approved HTTP service.
 
-Model providers receive the active project name, the current message, and recent chat history. Settings persist provider selection and other preferences locally. Credentials entered in the dialog stay in memory. The model and CLI do not receive the MCP token or the Apply operation. The Gateway still enforces MCP permissions and validates the saved resource after a write.
+Model providers receive the active project name, the Gateway's tool schemas, the current message, recent chat history, and any tool result you explicitly attach. Settings persist provider selection and other preferences locally. Credentials entered in the dialog stay in memory. The model and CLI receive neither the MCP token nor permission to run a tool.
 
 ## Build and package
 
@@ -42,7 +52,16 @@ The Gateway module retains its own build and signing artifact. The companion's m
 
 ## Validation on 8.3.9
 
-The signed 0.1.0 companion and signed Ignition MCP 0.5.0 ran on an isolated official 8.3.9 Gateway. In native macOS Designer, the assistant dock generated a static Pump Overview view using a loopback model fixture. Preview returned a create plan. Apply created the view and displayed the Gateway's verified receipt. File → Update Project pulled the new resource, and the view opened and rendered on the native Designer canvas. A separate live test exercised the companion's Java MCP client, including explicit plan status and readback. The SDK build, signed package, 104 Java tests, and nine existing Gateway UI tests passed.
+The signed 0.1.0 companion and signed Ignition MCP 0.5.0 ran on an isolated official 8.3.9 Gateway. In native macOS Designer, the assistant dock generated a static Pump Overview view using a loopback model fixture. Preview returned a create plan. Apply created the view and displayed the Gateway's verified receipt. File → Update Project pulled the new resource, and the view opened and rendered on the native Designer canvas.
+
+The signed 0.2.0 package was installed alongside Ignition MCP 0.5.0 on a fresh official 8.3.9 Gateway. The Swing dock integration test discovered the MCP catalog, used a synthetic model to propose a native Python library, named query, UDT type and simple Perspective view, and applied and read back all four. It also checked that previews did not create the script, query, or UDT before Apply and that an inventory result could be attached to chat. The test used the dock's actual Swing controls in a harness. Native Designer rendering and execution of the saved SQL or Jython were outside this run.
+
+To repeat the integration test, use a disposable loopback 8.3.9 Gateway, a fresh project named `DesignerAssistantQA*`, and a private JSON file with `gateway`, `project`, and `token`. Grant the test token the required tools and scopes for the test project's `Assistant/` resources and `[default]_types_/Assistant/` UDT definitions and members. The test starts its own synthetic model, creates unique resources, and leaves them available for Designer inspection.
+
+```sh
+DESIGNER_ASSISTANT_QA_CONFIG=/private/path/credentials.json \
+  ./gradlew :designer-assistant:test --rerun-tasks
+```
 
 Codex CLI 0.167.1 completed a model turn through a synthetic local endpoint with a temporary named profile. The test verified that the configured MCP server did not launch. Automated HTTP fixtures cover the OpenAI-compatible and Anthropic request formats. Real enterprise sign-in, public model credentials, and the Windows and Linux Designer launch paths remain unverified.
 
