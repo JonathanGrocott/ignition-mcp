@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Added Designer-session access to the existing MCP catalog through explicit Gateway authorization profiles.
+- Designer Assistant 0.4.0 adds conversational project changes, review and auto-apply, and project bundle import/export.
+
 ## 0.5.0 (2026-11-11)
 
 - Import native Ignition project export ZIPs and apply portable bundles to an existing project, including Perspective views and singleton resources.

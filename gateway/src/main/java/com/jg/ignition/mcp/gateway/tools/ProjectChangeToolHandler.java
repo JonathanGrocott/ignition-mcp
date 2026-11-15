@@ -137,7 +137,7 @@ public final class ProjectChangeToolHandler implements ToolHandler {
         out.put("changeCount", changes.stream().filter(change -> !change.action().equals("unchanged")).count());
         if (commit) {
             out.remove("changes");
-            return applyChanges(new ChangePlanStore.Plan(context.authContext().tokenName(), project, null,
+            return applyChanges(new ChangePlanStore.Plan(context.planOwner(), project, null,
                 Long.MAX_VALUE, changes, out, 0), context);
         }
         out.put("dryRun", true).put("writesEnabledAtPreview", context.safetyPolicy().writesEnabled());
@@ -151,13 +151,13 @@ public final class ProjectChangeToolHandler implements ToolHandler {
             return ToolExecutionResult.error("RESULT_TOO_LARGE", "Preview leaves insufficient room for plan identity; narrow the bundle");
         }
         String hash = ProjectBundle.sha256(out.toString().getBytes(StandardCharsets.UTF_8));
-        var plan = plans.create(context.authContext().tokenName(), project, hash, changes, out,
+        var plan = plans.create(context.planOwner(), project, hash, changes, out,
             bundle.bytes() + out.toString().getBytes(StandardCharsets.UTF_8).length);
         return InspectionSupport.result("Project change plan staged", plan.snapshot());
     }
 
     private ToolExecutionResult stored(JsonNode args, ToolCallContext context) {
-        var plan = plans.owned(InspectionSupport.required(args, "planId"), context.authContext().tokenName());
+        var plan = plans.owned(InspectionSupport.required(args, "planId"), context.planOwner());
         synchronized (plan) {
             for (var change : plan.changes) { authorize(context, plan.project, change.path(), name.endsWith(".apply")); }
             if (name.endsWith(".status")) { return InspectionSupport.result("Stored plan receipt retrieved", plan.snapshot()); }

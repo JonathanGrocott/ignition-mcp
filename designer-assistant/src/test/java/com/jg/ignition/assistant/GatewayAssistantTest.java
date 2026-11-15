@@ -21,7 +21,7 @@ class GatewayAssistantTest {
     void reviewAndAutoUseChosenFoldersOnTheLocalGateway() throws Exception {
         JsonNode settings = JSON.readTree(Path.of(System.getenv("DESIGNER_ASSISTANT_QA_CONFIG")).toFile());
         try (var gateway = new GatewayProbe(settings)) {
-            var agent = new AssistantAgent(gateway);
+            var agent = new AssistantAgent(gateway, null);
             var model = new ModelProvider.Settings(ModelProvider.Kind.OPENAI_COMPATIBLE,
                 "http://127.0.0.1:8103/v1/chat/completions", "designer-qa", "", "", "", "");
             String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -30,22 +30,22 @@ class GatewayAssistantTest {
             String review = "[default]_types_/Packaging/Line 1/" + motor;
             String auto = "[default]_types_/Utilities/Cooling/" + pump;
 
-            var inspection = agent.run(model, prompt("What is in the current project?"), AssistantAgent.Mode.REVIEW, ignored -> {});
+            var inspection = agent.run(model, prompt("What is in the current project?"), AssistantAgent.Mode.REVIEW, null, ignored -> {});
             assertTrue(inspection.reply().contains(gateway.name()));
             assertTrue(inspection.reply().contains("Packaging"));
             assertTrue(inspection.reply().contains("Scripts"));
             assertTrue(inspection.reply().contains("Perspective"));
 
             var proposal = agent.run(model, prompt("Create " + motor + " UDT in Packaging/Line 1"),
-                AssistantAgent.Mode.REVIEW, ignored -> {});
+                AssistantAgent.Mode.REVIEW, null, ignored -> {});
             assertNotNull(proposal.pending(), proposal.reply());
-            assertEquals(review, proposal.pending().path());
+            assertEquals(review, proposal.pending().target());
             assertFalse(gateway.exists(review), "Review wrote before approval");
-            assertEquals(review, agent.apply(proposal.pending()).draft().path());
+            assertEquals(review, proposal.pending().apply().call().draft().path());
             assertTrue(gateway.exists(review));
 
             var applied = agent.run(model, prompt("Create " + pump + " UDT in Utilities/Cooling"),
-                AssistantAgent.Mode.AUTO, ignored -> {});
+                AssistantAgent.Mode.AUTO, null, ignored -> {});
             assertNull(applied.pending());
             assertNotNull(applied.applied(), applied.reply());
             assertEquals(auto, applied.applied().draft().path());

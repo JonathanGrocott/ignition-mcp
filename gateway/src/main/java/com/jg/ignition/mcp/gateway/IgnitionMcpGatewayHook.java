@@ -2,10 +2,12 @@ package com.jg.ignition.mcp.gateway;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
+import com.inductiveautomation.ignition.common.rpc.proto.ProtoRpcSerializer;
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup;
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
 import com.inductiveautomation.ignition.gateway.web.systemjs.SystemJsModule;
+import com.inductiveautomation.ignition.gateway.rpc.GatewayRpcImplementation;
 import com.jg.ignition.mcp.common.McpConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +21,7 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
     private GatewayContext gatewayContext;
     private McpConfigService configService;
     private McpRouteRegistrar routeRegistrar;
+    private DesignerToolEndpoint designerTools;
 
     @Override
     public void setup(GatewayContext context) {
@@ -33,6 +36,9 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
         SafetyPolicyEngine safetyPolicyEngine = new SafetyPolicyEngine(configService::getConfig);
         ToolRegistry toolRegistry = new ToolRegistry();
         McpDispatcher dispatcher = new McpDispatcher(mapper, toolRegistry, permissionEvaluator);
+
+        this.designerTools = new DesignerToolEndpoint(gatewayContext, mapper, configService::getConfig,
+            toolRegistry, dispatcher, auditLogger);
 
         this.routeRegistrar = new McpRouteRegistrar(
             gatewayContext,
@@ -61,6 +67,11 @@ public class IgnitionMcpGatewayHook extends AbstractGatewayModuleHook {
             configService.shutdown();
         }
         logger.info("Ignition MCP gateway shutdown complete");
+    }
+
+    @Override
+    public Optional<GatewayRpcImplementation> getRpcImplementation() {
+        return Optional.of(GatewayRpcImplementation.of(ProtoRpcSerializer.DEFAULT_INSTANCE, designerTools));
     }
 
     @Override

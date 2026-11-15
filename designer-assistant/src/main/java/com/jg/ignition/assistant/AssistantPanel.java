@@ -7,6 +7,9 @@ import javax.swing.event.DocumentListener;
 import javax.swing.text.DefaultEditorKit;
 import java.awt.*;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -25,6 +28,9 @@ final class AssistantPanel extends JPanel {
     private final JButton settingsButton = new JButton("Settings");
     private final JButton newChat = new JButton("New chat");
     private final JButton send = new JButton("Send");
+    private final JButton attach = new JButton("Attach");
+    private final JButton removeAttachment = new JButton("Remove attachment");
+    private final JLabel attachmentLabel = new JLabel();
     private final JLabel modelLabel = new JLabel();
     private final JComboBox<AssistantAgent.Mode> permission = new JComboBox<>(AssistantAgent.Mode.values());
     private final Cards cards = new Cards();
@@ -36,18 +42,19 @@ final class AssistantPanel extends JPanel {
     private final List<ModelProvider.Message> history = new ArrayList<>();
 
     private AssistantSettings settings;
+    private ProjectTools.Attachment attachment;
     private SwingWorker<?, ?> worker;
     private Pending pending;
     private boolean closed;
 
-    AssistantPanel(AgentProject project) {
-        this(project, AssistantSettings.saved());
+    AssistantPanel(AgentProject project, AssistantSettings initialSettings) {
+        this(project, initialSettings, null);
     }
 
-    AssistantPanel(AgentProject project, AssistantSettings initialSettings) {
+    AssistantPanel(AgentProject project, AssistantSettings initialSettings, ProjectTools tools) {
         super(new BorderLayout(0, 8));
         this.project = project;
-        this.agent = new AssistantAgent(project);
+        this.agent = new AssistantAgent(project, tools);
         this.settings = initialSettings;
         setBackground(palette.bg);
         setBorder(new EmptyBorder(12, 12, 10, 12));
@@ -60,7 +67,7 @@ final class AssistantPanel extends JPanel {
         modeLabel.setLabelFor(permission);
         modeLabel.setForeground(palette.muted);
         permission.getAccessibleContext().setAccessibleName("Change permission");
-        permission.setToolTipText("Auto-apply creates authorized UDTs without a separate approval.");
+        permission.setToolTipText("Auto-apply runs authorized changes without a separate approval.");
         var top = new JPanel(new BorderLayout(4, 0));
         top.setOpaque(false);
         top.add(title, BorderLayout.CENTER);
@@ -126,7 +133,19 @@ final class AssistantPanel extends JPanel {
         composer.add(input, BorderLayout.CENTER);
         send.setToolTipText("Send (Enter)");
         styleButton(send);
-        composer.add(row(FlowLayout.TRAILING, send), BorderLayout.SOUTH);
+        if (tools != null) {
+            styleButton(attach);
+            styleButton(removeAttachment);
+            attach.setToolTipText("Attach an Ignition project export ZIP or project resource bundle");
+            attach.addActionListener(event -> attach());
+            removeAttachment.addActionListener(event -> setAttachment(null));
+            attachmentLabel.setForeground(palette.muted);
+            composer.add(row(attachmentLabel, removeAttachment), BorderLayout.NORTH);
+            composer.add(row(FlowLayout.TRAILING, attach, send), BorderLayout.SOUTH);
+            setAttachment(null);
+        } else {
+            composer.add(row(FlowLayout.TRAILING, send), BorderLayout.SOUTH);
+        }
         status.setForeground(palette.muted);
         status.getAccessibleContext().setAccessibleName("Assistant status");
         status.setBorder(new EmptyBorder(1, 5, 0, 5));
@@ -148,9 +167,9 @@ final class AssistantPanel extends JPanel {
         }));
         permission.addActionListener(event -> {
             if (permission.getSelectedItem() == AssistantAgent.Mode.AUTO) {
-                setStatus("Authorized UDT creations apply immediately in this chat.");
+                setStatus("Authorized changes apply immediately in this chat.");
             } else {
-                setStatus("UDT creations require review.");
+                setStatus("Changes require review.");
             }
         });
         greet();
@@ -172,8 +191,8 @@ final class AssistantPanel extends JPanel {
     }
 
     private void greet() {
-        message("Assistant", "Ask about tags, UDTs, Perspective views, or scripts in this project. "
-            + "To create a UDT, tell me which folder to use and what members it needs.", false);
+        message("Assistant", "Ask me to inspect this project or help change a script, Named Query, tag, "
+            + "UDT, or Perspective view. Tell me which resource or folder you want to work in.", false);
     }
 
     private void send() {
@@ -201,53 +220,90 @@ final class AssistantPanel extends JPanel {
         var input = List.copyOf(history);
         var model = settings.provider();
         var mode = (AssistantAgent.Mode) permission.getSelectedItem();
-        run("Thinking…", progress -> () -> agent.run(model, input, mode, progress), turn -> {
+        var file = attachment;
+        if (file != null) {
+            message("Attachment", file.name(), true);
+        }
+        run("Thinking…", progress -> () -> agent.run(model, input, mode, file, progress), turn -> {
+            turn.exports().forEach(this::showExport);
+            if (!turn.reply().isBlank()) {
+                reply(turn.reply());
+            }
             if (turn.pending() != null) {
                 addReview(turn.pending());
             } else if (turn.applied() != null) {
                 showApplied(turn.applied());
             } else {
-                reply(turn.reply());
                 setStatus(" ");
             }
         });
     }
 
-    private void addReview(UdtDraft draft) {
+    private void addReview(ChangeReview change) {
         JPanel card = card(palette.amberBg);
-        line(card, "Create UDT", palette.amber, true);
-        line(card, draft.path(), palette.text, false);
-        if (!draft.description().isEmpty()) {
-            line(card, draft.description(), palette.muted, false);
+        line(card, change.title(), palette.amber, true);
+        if (!change.target().isBlank()) {
+            line(card, change.target(), palette.text, false);
         }
-        line(card, "Members", palette.muted, true);
-        for (var member : draft.members()) {
-            line(card, member.name() + "   " + member.dataType() + " · Memory"
-                + (member.description().isEmpty() ? "" : " — " + member.description()), palette.text, false);
-        }
-        JButton approve = new JButton("Approve creation");
+        int visibleDetails = Math.min(12, change.details().size());
+        change.details().subList(0, visibleDetails).forEach(detail -> line(card, detail, palette.text, false));
+        JButton approve = new JButton(change.approveLabel());
         JButton dismiss = new JButton("Dismiss");
         styleButton(approve);
         styleButton(dismiss);
         JLabel reviewState = new JLabel(" ");
         reviewState.setForeground(palette.muted);
         JPanel actions = row(approve, dismiss);
+        if (!change.sources().isEmpty() || change.details().size() > visibleDetails) {
+            var details = new JButton("View details");
+            styleButton(details);
+            details.addActionListener(event -> showDetails(change));
+            actions.add(details);
+        }
         actions.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.add(actions);
         reviewState.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.add(reviewState);
-        pending = new Pending(draft, approve, dismiss, reviewState);
-        approve.addActionListener(event -> approve(pending));
+        var reviewed = new Pending(change, approve, dismiss, reviewState);
+        pending = reviewed;
+        approve.addActionListener(event -> approve(reviewed));
         dismiss.addActionListener(event -> {
-            resolvePending("Dismissed.");
-            remember("assistant", "The user dismissed the UDT draft at " + draft.path() + ".");
-            setStatus("Draft dismissed.");
-            updateControls();
+            if (pending == reviewed) {
+                resolvePending("Dismissed.");
+                remember("assistant", "The user dismissed " + change.title() + " at " + change.target() + ".");
+                setStatus("Draft dismissed.");
+                updateControls();
+            }
         });
         addCard(card);
-        remember("assistant", "Proposed UDT " + draft.path() + " with members "
-            + draft.members().stream().map(m -> m.name() + " (" + m.dataType() + ")").toList() + " for approval.");
+        remember("assistant", "Proposed " + change.title() + " at " + change.target() + " for approval. "
+            + String.join(" ", change.details().subList(0, visibleDetails)) + sourceContext(change));
         setStatus("Review the change or ask for a revision.");
+    }
+
+    private static String sourceContext(ChangeReview change) {
+        var context = new StringBuilder();
+        for (var source : change.sources()) {
+            if (source.title().startsWith("Proposed") || source.title().endsWith(".py") || source.title().endsWith(".sql")) {
+                context.append("\n").append(source.title()).append("\n").append(source.text());
+            }
+            if (context.length() > 6_000) {
+                return context.substring(0, 6_000) + "\n[Excerpt]";
+            }
+        }
+        return context.toString();
+    }
+
+    private void showDetails(ChangeReview change) {
+        var text = new StringBuilder(change.target()).append("\n\n").append(String.join("\n", change.details()));
+        for (var section : change.sources()) {
+            text.append("\n\n").append(section.title()).append("\n").append(section.text());
+        }
+        var body = new JTextArea(text.toString(), 24, 72);
+        body.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        body.setEditable(false);
+        body.setCaretPosition(0);
+        JOptionPane.showMessageDialog(this, new JScrollPane(body), change.title(), JOptionPane.PLAIN_MESSAGE);
     }
 
     private void approve(Pending reviewed) {
@@ -255,7 +311,7 @@ final class AssistantPanel extends JPanel {
             return;
         }
         resolvePending("Approved.");
-        run("Creating " + reviewed.draft().path() + "…", ignored -> () -> agent.apply(reviewed.draft()), this::showApplied);
+        run(reviewed.change().title() + "…", ignored -> reviewed.change().apply(), this::showApplied);
     }
 
     private void resolvePending(String state) {
@@ -269,24 +325,80 @@ final class AssistantPanel extends JPanel {
 
     private void showApplied(AssistantAgent.Applied result) {
         JPanel card = card(palette.greenBg);
-        line(card, "UDT created", palette.green, true);
+        line(card, result.draft() == null ? "Action completed" : "UDT created", palette.green, true);
         line(card, result.summary(), palette.text, false);
-        JButton show = new JButton("Show in Tag Browser");
-        styleButton(show);
-        show.addActionListener(event -> {
-            try {
-                project.showUdt(result.draft());
-                setStatus("Selected the UDT in the Tag Browser.");
-            } catch (IOException | RuntimeException e) {
-                setStatus("Open UDT Definitions and browse to " + result.draft().path() + ".");
+        if (result.draft() != null) {
+            JButton show = new JButton("Show in Tag Browser");
+            styleButton(show);
+            show.addActionListener(event -> {
+                try {
+                    project.showUdt(result.draft());
+                    setStatus("Selected the UDT in the Tag Browser.");
+                } catch (IOException | RuntimeException e) {
+                    setStatus("Open UDT Definitions and browse to " + result.draft().path() + ".");
+                }
+            });
+            JPanel actions = row(show);
+            actions.setAlignmentX(Component.LEFT_ALIGNMENT);
+            card.add(actions);
+        } else if (result.projectChanged()) {
+            line(card, "Saved to the Gateway. Use File → Update Project if the change has not appeared in Designer.",
+                palette.muted, false);
+        }
+        addCard(card);
+        remember("assistant", result.summary());
+        setStatus(" ");
+    }
+
+    private void attach() {
+        var chooser = new JFileChooser();
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Ignition exports and bundles", "zip", "json"));
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            Path file = chooser.getSelectedFile().toPath();
+            run("Opening attachment…", ignored -> () -> ProjectTools.Attachment.read(file), this::setAttachment);
+        }
+    }
+
+    private void setAttachment(ProjectTools.Attachment file) {
+        attachment = file;
+        attachmentLabel.setText(file == null ? "" : file.name());
+        attachmentLabel.setVisible(file != null);
+        removeAttachment.setVisible(file != null);
+        revalidate();
+    }
+
+    private void showExport(ProjectTools.Export export) {
+        var card = card(palette.panel);
+        line(card, "Project resource export", palette.text, true);
+        int count = export.bundle().path("resourceCount").asInt();
+        String summary = count + (count == 1 ? " resource" : " resources");
+        line(card, summary + (export.bundle().path("truncated").asBoolean() ? " (partial export)" : ""),
+            palette.muted, false);
+        var save = new JButton("Save export…");
+        styleButton(save);
+        save.addActionListener(event -> {
+            if (closed || worker != null) {
+                return;
+            }
+            var chooser = new JFileChooser();
+            chooser.setSelectedFile(new java.io.File(export.filename()));
+            if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                Path target = chooser.getSelectedFile().toPath();
+                boolean replace = Files.exists(target);
+                if (replace && JOptionPane.showConfirmDialog(this, "Replace " + target.getFileName() + "?",
+                        "Save export", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
+                    return;
+                }
+                run("Saving export…", ignored -> () -> {
+                    String text = AssistantJson.JSON.writerWithDefaultPrettyPrinter().writeValueAsString(export.bundle());
+                    return replace ? Files.writeString(target, text) : Files.writeString(target, text, StandardOpenOption.CREATE_NEW);
+                }, saved -> setStatus("Saved " + saved.getFileName() + "."));
             }
         });
-        JPanel actions = row(show);
+        var actions = row(save);
         actions.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.add(actions);
         addCard(card);
-        remember("assistant", result.summary());
-        setStatus("Gateway readback verified.");
     }
 
     private void reply(String text) {
@@ -296,6 +408,7 @@ final class AssistantPanel extends JPanel {
 
     private void clear() {
         history.clear();
+        setAttachment(null);
         resolvePending("Dismissed.");
         cards.removeAll();
         cards.add(activityRow);
@@ -428,6 +541,8 @@ final class AssistantPanel extends JPanel {
         settingsButton.setEnabled(idle);
         newChat.setEnabled(idle);
         send.setEnabled(idle && !prompt.getText().isBlank());
+        attach.setEnabled(idle);
+        removeAttachment.setEnabled(idle);
         prompt.setEditable(!closed);
         permission.setEnabled(idle && pending == null);
         if (pending != null) {
@@ -478,11 +593,12 @@ final class AssistantPanel extends JPanel {
         }
         resolvePending("Designer closed.");
         history.clear();
+        setAttachment(null);
         settings = null;
         updateControls();
     }
 
-    private record Pending(UdtDraft draft, JButton approve, JButton dismiss, JLabel state) {}
+    private record Pending(ChangeReview change, JButton approve, JButton dismiss, JLabel state) {}
 
     private final class Composer extends JTextArea {
         Composer() { super(2, 10); }

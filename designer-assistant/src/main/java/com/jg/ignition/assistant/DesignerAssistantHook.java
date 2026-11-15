@@ -1,10 +1,13 @@
 package com.jg.ignition.assistant;
 
+import com.inductiveautomation.ignition.client.gateway_interface.GatewayConnection;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
+import com.inductiveautomation.ignition.common.rpc.proto.ProtoRpcSerializer;
 import com.inductiveautomation.ignition.designer.model.AbstractDesignerModuleHook;
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 import com.jidesoft.docking.DockContext;
 import com.jidesoft.docking.DockableFrame;
+import com.jg.ignition.mcp.bridge.DesignerMcpRpc;
 
 import javax.swing.SwingUtilities;
 import java.awt.Dimension;
@@ -17,7 +20,9 @@ public final class DesignerAssistantHook extends AbstractDesignerModuleHook {
     @Override
     public void startup(DesignerContext context, LicenseState activationState) throws Exception {
         Runnable create = () -> {
-            panel = new AssistantPanel(new NativeAgentProject(context));
+            var rpc = GatewayConnection.getRpcInterface(ProtoRpcSerializer.DEFAULT_INSTANCE, DesignerMcpRpc.MODULE_ID,
+                DesignerMcpRpc.class);
+            panel = new AssistantPanel(new NativeAgentProject(context), AssistantSettings.saved(), new ProjectTools(rpc));
 
             DockableFrame dock = new DockableFrame("IgnitionDesignerAssistant");
             dock.setTitle("Designer Assistant");

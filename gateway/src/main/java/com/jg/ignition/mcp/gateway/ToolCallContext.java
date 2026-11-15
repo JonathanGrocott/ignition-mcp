@@ -11,6 +11,17 @@ public record ToolCallContext(
     SafetyPolicyEngine safetyPolicy,
     McpAuditLogger auditLogger,
     McpServerConfigResource config,
-    ObjectMapper objectMapper
+    ObjectMapper objectMapper,
+    String designerProject
 ) {
+    public ToolCallContext(GatewayContext gatewayContext, RequestContext requestContext,
+                           McpAuthService.AuthContext authContext, SafetyPolicyEngine safetyPolicy,
+                           McpAuditLogger auditLogger, McpServerConfigResource config, ObjectMapper objectMapper) {
+        this(gatewayContext, requestContext, authContext, safetyPolicy, auditLogger, config, objectMapper, null);
+    }
+
+    public String planOwner() {
+        return designerProject == null ? authContext.tokenName()
+            : "\0designer:" + authContext.actorFingerprint() + "/" + designerProject;
+    }
 }

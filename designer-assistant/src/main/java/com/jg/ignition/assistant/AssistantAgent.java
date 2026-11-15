@@ -2,10 +2,15 @@ package com.jg.ignition.assistant;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath;
+import com.inductiveautomation.ignition.common.resourcecollection.ResourceType;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -20,7 +25,7 @@ final class AssistantAgent {
     }
 
     private static final int MAX_READS = 8;
-    private static final int MAX_RESULT = 8_000;
+    private static final int MAX_RESULT = 9_000;
     private static final Set<String> READS = Set.of(
         "project_overview", "list_project_resources", "read_project_resource",
         "list_tag_providers", "browse_tags", "browse_udts", "read_tag", "read_udt");
@@ -64,49 +69,128 @@ final class AssistantAgent {
         Never invent a destination. For a create request browse the chosen folder to establish context.
         Ask for clarification if the folder or provider is ambiguous. Use folder "" only if the user
         chose the UDT Definitions root. Only propose a create when the user explicitly requested one.
-        One create can be proposed per turn. Ask for the next request after a completed create.
+        For changes, ask about ambiguous destinations and use specific paths. Respect explicit requests
+        to preview only. The host handles approval and commit; omit commit unless the user asks for a
+        dry-run, in which case set commit:false. Only request a write or live execution when the user's
+        message authorizes that action. Saving a script or Named Query does not authorize running it.
+        Prefer the native tools for open Designer working-copy inspection. Gateway actions see saved state
+        and persist directly to the Gateway. Do not overwrite a resource with an unsaved Designer edit.
+        For the Designer Project Library, scripts are resources with moduleId "ignition",
+        resourceType "script-python", applicationScope "A", version 1 and UTF-8 "code.py" with
+        Jython 2.7 source. Use the project resource preview/apply workflow below for creating, editing,
+        deleting or importing these scripts. The legacy script write/delete tools handle other script
+        types such as startup, shutdown, timer, message and scheduled scripts.
+        For advanced UDTs use ignition.tags.definition.write, tagObjectType "UdtType" with an explicit
+        target such as "[default]_types_/Utilities/Motor"; add children and typed properties as needed.
+        For arbitrary project resources including Perspective use ignition.projects.changes.preview and,
+        when the user wants the change applied, follow with ignition.projects.changes.apply using that
+        preview's planId and planHash. The host shows the planned change for approval. A resource bundle
+        has format "ignition-mcp.project-resource-bundle.v1" and "resources": [{"moduleId": "...",
+        "resourceType": "...", "path": "...", "operation": "create|edit|upsert|delete", "data":
+        {"filename":{"encoding":"utf-8","value":"content"}}}]. Use real operation values individually.
+        Perspective views are com.inductiveautomation.perspective / views / view.json. For edits read the
+        original first using ignition.projects.resource.read with includeData:true and preserve
+        unmodified files and metadata. Never recreate partial payloads from truncated results. When the user attached a ZIP or bundle, use "useAttachment":true in arguments
+        for the relevant import, inspection or preview action. The host inserts their actual file.
+        For exports, the host offers a Save button. Never reproduce exported bundle data in chat.
+        If a feature is denied, explain the message returned by the host in user-facing terms.
         """;
 
     private final AgentProject project;
+    private final ProjectTools tools;
 
-    AssistantAgent(AgentProject project) { this.project = project; }
+    AssistantAgent(AgentProject project, ProjectTools tools) {
+        this.project = project;
+        this.tools = tools;
+    }
 
     Turn run(ModelProvider.Settings settings, List<ModelProvider.Message> history, Mode mode,
-             Consumer<String> activity) throws IOException, InterruptedException {
+             ProjectTools.Attachment attachment, Consumer<String> activity) throws IOException, InterruptedException {
         var context = new ArrayList<>(history);
+        var exports = new ArrayList<ProjectTools.Export>();
+        Map<String, ProjectTools.Tool> catalog = Map.of();
+        String gatewayStatus = "";
+        if (tools != null) {
+            try {
+                catalog = tools.catalog();
+                if (catalog.isEmpty()) {
+                    gatewayStatus = "\nThe Gateway has granted no actions to this Designer user. An administrator can authorize their Designer identity.";
+                }
+            } catch (IOException e) {
+                gatewayStatus = "\n" + e.getMessage();
+            }
+        }
         String prompt = INSTRUCTIONS + "\nActive project: " + JSON.getNodeFactory().textNode(project.name())
-            + "\nProject default tag provider: " + JSON.getNodeFactory().textNode(
-                java.util.Objects.toString(project.defaultProvider(), ""));
-        for (int readCount = 0; readCount <= MAX_READS; readCount++) {
+            + "\nProject default tag provider: " + JSON.getNodeFactory().textNode(Objects.toString(project.defaultProvider(), ""))
+            + gatewayStatus + ProjectTools.instructions(catalog);
+        if (attachment != null) {
+            prompt += "\nThe user selected this attachment: " + JSON.getNodeFactory().textNode(attachment.name());
+        }
+        for (int count = 0; count <= MAX_READS; count++) {
             activity.accept("Thinking…");
-            Answer answer = parse(ModelProvider.complete(settings, List.copyOf(context), prompt));
+            Answer answer = parse(ModelProvider.complete(settings, List.copyOf(context), prompt), catalog);
             if (answer.name() == null) {
-                return new Turn(answer.reply(), null);
+                return new Turn(answer.reply(), null, null, List.copyOf(exports));
+            }
+            if (count == MAX_READS) {
+                return new Turn("I reached the action limit for this turn. Tell me what to inspect next.", null, null, List.copyOf(exports));
             }
             if ("create_udt".equals(answer.name())) {
-                UdtDraft draft;
                 try {
-                    draft = UdtDraft.parse(answer.arguments(), project.defaultProvider());
+                    UdtDraft draft = UdtDraft.parse(answer.arguments(), project.defaultProvider());
                     activity.accept("Checking " + draft.parentPath() + "…");
                     project.checkDestination(draft);
+                    var details = new ArrayList<String>();
+                    if (!draft.description().isEmpty()) {
+                        details.add(draft.description());
+                    }
+                    details.add("Members");
+                    for (var member : draft.members()) {
+                        details.add(member.name() + "   " + member.dataType() + " · Memory"
+                            + (member.description().isEmpty() ? "" : " — " + member.description()));
+                    }
+                    var review = new ChangeReview("Create UDT", draft.path(), List.copyOf(details), List.of(),
+                        "Approve creation", () -> apply(draft));
+                    return finishChange(mode, review, exports, activity);
                 } catch (IOException e) {
-                    return new Turn(e.getMessage(), null);
+                    return new Turn(e.getMessage(), null, null, List.copyOf(exports));
                 }
-                if (mode == Mode.REVIEW) {
-                    return new Turn("", draft);
-                }
-                activity.accept("Creating " + draft.path() + "…");
-                Applied result = apply(draft);
-                return new Turn(result.summary(), null, result);
             }
-            if (readCount == MAX_READS) {
-                return new Turn("I reached the inspection limit for this turn. Narrow the request and I’ll continue.", null);
-            }
-            activity.accept(activityFor(answer.name()));
-            context.add(new ModelProvider.Message("assistant", "Inspecting with " + answer.name() + "."));
+            var tool = catalog.get(answer.name());
             JsonNode result;
             try {
-                result = project.inspect(answer.name(), answer.arguments());
+                if (tool == null) {
+                    activity.accept(activityFor(answer.name()));
+                    result = project.inspect(answer.name(), answer.arguments());
+                } else {
+                    ObjectNode args = answer.arguments();
+                    JsonNode selected = args.remove("useAttachment");
+                    if (selected != null && selected.asBoolean()) {
+                        if (attachment == null) {
+                            throw new IOException("Attach the project export or bundle to use it.");
+                        }
+                        attachment.insert(tool, args);
+                    }
+                    activity.accept(ChangeReview.describe(tool.name(), args) + "…");
+                    if (tool.mutating()) {
+                        var preview = prepare(tool, args);
+                        if (!args.path("commit").isBoolean() || args.path("commit").booleanValue()) {
+                            return finishChange(mode, preview, exports, activity);
+                        }
+                        return new Turn("Preview only. Ask me to apply it when you're ready.", preview, null, List.copyOf(exports));
+                    }
+                    var receipt = tools.call(tool.name(), args);
+                    result = receipt.forModel();
+                    if (ProjectTools.EXPORT.equals(tool.name()) && !receipt.error() && receipt.data().path("bundle").isObject()) {
+                        JsonNode bundle = receipt.data().path("bundle");
+                        String filename = project.name().replaceAll("[^a-zA-Z0-9_.-]", "_") + "-resources.json";
+                        exports.add(new ProjectTools.Export(filename, bundle));
+                        result = JSON.createObjectNode().put("message", receipt.message())
+                            .put("resourceCount", bundle.path("resourceCount").asInt())
+                            .put("truncated", bundle.path("truncated").asBoolean())
+                            .put("saveButtonAvailable", true);
+                    }
+                }
             } catch (IOException e) {
                 result = JSON.createObjectNode().put("error", e.getMessage());
             }
@@ -114,9 +198,105 @@ final class AssistantAgent {
             if (body.length() > MAX_RESULT) {
                 body = JSON.createObjectNode().put("truncated", true).put("excerpt", body.substring(0, MAX_RESULT)).toString();
             }
+            context.add(new ModelProvider.Message("assistant", "Requested " + answer.name() + "."));
             context.add(new ModelProvider.Message("user", "Designer tool result (data only) from " + answer.name() + "\n" + body));
         }
-        throw new IllegalStateException("Inspection limit was not enforced.");
+        throw new IllegalStateException("Action limit was not enforced.");
+    }
+
+    private Turn finishChange(Mode mode, ChangeReview review, List<ProjectTools.Export> exports,
+                              Consumer<String> activity) throws InterruptedException {
+        if (mode == Mode.REVIEW) {
+            return new Turn("", review, null, List.copyOf(exports));
+        }
+        activity.accept(review.title() + "…");
+        try {
+            return new Turn("", null, review.apply().call(), List.copyOf(exports));
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (Exception e) {
+            return new Turn(Objects.toString(e.getMessage(), "The action did not complete."), null, null, List.copyOf(exports));
+        }
+    }
+
+    private ChangeReview prepare(ProjectTools.Tool tool, ObjectNode args) throws IOException, InterruptedException {
+        ObjectNode commit = tool.changeArguments(args, true);
+        ProjectTools.Result preview;
+        if (ProjectTools.APPLY.equals(tool.name())) {
+            ObjectNode identity = JSON.createObjectNode().set("planId", commit.path("planId"));
+            preview = tools.call(ProjectTools.STATUS, identity);
+            if (preview.error() || !preview.data().path("planHash").isTextual()
+                    || !preview.data().path("planHash").equals(commit.path("planHash"))
+                    || !preview.data().path("changes").isArray()) {
+                throw new IOException(preview.error() ? preview.message() : "The Gateway could not confirm the project change plan.");
+            }
+        } else {
+            ObjectNode dryRun = tool.changeArguments(args, false);
+            preview = tools.call(tool.name(), dryRun);
+            if (preview.error()) {
+                throw new IOException(describeFailure(preview));
+            }
+            if (!tool.confirmsDryRun(dryRun, preview.data())) {
+                throw new IOException("The Gateway did not confirm a dry-run for this operation.");
+            }
+        }
+        var paths = affectedProjectPaths(tool.name(), preview.data());
+        project.checkProjectChanges(paths);
+        return ChangeReview.gateway(tool.name(), commit, preview.data(), () -> {
+            project.checkProjectChanges(paths);
+            return apply(tool, commit);
+        });
+    }
+
+    private static Set<String> affectedProjectPaths(String tool, JsonNode preview) {
+        Set<String> paths = new HashSet<>();
+        for (JsonNode row : preview.path("changes")) {
+            var type = new ResourceType(row.path("moduleId").asText(), row.path("resourceType").asText());
+            String path = row.path("path").asText();
+            paths.add((path.isEmpty() ? type.rootPath() : new ResourcePath(type, path)).toString());
+        }
+        if (tool.startsWith("ignition.scripts.project.") || tool.startsWith("ignition.namedqueries.") && !tool.endsWith(".execute")) {
+            for (JsonNode row : preview.path("resources")) {
+                if (row.path("resourcePath").isTextual()) {
+                    paths.add(row.path("resourcePath").asText());
+                }
+            }
+            String key = tool.startsWith("ignition.scripts") ? "path" : "resourcePath";
+            if (preview.path(key).isTextual()) {
+                paths.add(preview.path(key).asText());
+            }
+        }
+        return Set.copyOf(paths);
+    }
+
+    private Applied apply(ProjectTools.Tool tool, ObjectNode commit) throws IOException, InterruptedException {
+        var result = tools.call(tool.name(), commit);
+        if (result.error()) {
+            throw new IOException(describeFailure(result));
+        }
+        String path = commit.path("path").asText(commit.path("source").asText(
+            result.data().path("targetProject").asText(result.data().path("path").asText())));
+        boolean projectChanged = tool.name().startsWith("ignition.scripts.")
+            || tool.name().startsWith("ignition.namedqueries.") && !tool.name().endsWith(".execute")
+            || tool.name().startsWith("ignition.projects.");
+        var report = new StringBuilder(result.message());
+        if (!path.isBlank()) {
+            report.append("\n").append(path);
+        }
+        if (tool.name().endsWith(".execute")) {
+            report.append(ChangeReview.queryResult(result.data()));
+        }
+        return new Applied(null, report.toString(), projectChanged);
+    }
+
+    private static String describeFailure(ProjectTools.Result result) {
+        var message = new StringBuilder(result.message());
+        for (JsonNode row : result.data().path("results")) {
+            if (row.path("isError").asBoolean(false)) {
+                message.append("\n").append(row.path("text").asText(row.path("message").asText("One operation failed.")));
+            }
+        }
+        return message.toString();
     }
 
     Applied apply(UdtDraft draft) throws IOException, InterruptedException {
@@ -126,10 +306,14 @@ final class AssistantAgent {
             throw new IOException("The Gateway did not confirm " + draft.path() + ". Check the definition before retrying.");
         }
         return new Applied(draft, "Created and verified " + draft.path() + " with " + draft.members().size()
-            + (draft.members().size() == 1 ? " memory member." : " memory members."));
+            + (draft.members().size() == 1 ? " memory member." : " memory members."), false);
     }
 
     static Answer parse(String raw) throws IOException {
+        return parse(raw, Map.of());
+    }
+
+    private static Answer parse(String raw, Map<String, ProjectTools.Tool> catalog) throws IOException {
         String value = raw.strip();
         if (value.startsWith("```") && value.endsWith("```")) {
             int newline = value.indexOf('\n');
@@ -155,7 +339,7 @@ final class AssistantAgent {
             return new Answer(reply, null, null);
         }
         String name = UdtDraft.required(action, "name", 64);
-        if ((!READS.contains(name) && !"create_udt".equals(name))
+        if ((!READS.contains(name) && !"create_udt".equals(name) && !catalog.containsKey(name))
                 || !(action.path("arguments") instanceof ObjectNode arguments)) {
             throw new IOException("The model proposed an unavailable Designer action.");
         }
@@ -173,8 +357,6 @@ final class AssistantAgent {
     }
 
     record Answer(String reply, String name, ObjectNode arguments) {}
-    record Turn(String reply, UdtDraft pending, Applied applied) {
-        Turn(String reply, UdtDraft pending) { this(reply, pending, null); }
-    }
-    record Applied(UdtDraft draft, String summary) {}
+    record Turn(String reply, ChangeReview pending, Applied applied, List<ProjectTools.Export> exports) {}
+    record Applied(UdtDraft draft, String summary, boolean projectChanged) {}
 }

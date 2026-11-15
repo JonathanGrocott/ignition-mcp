@@ -1,11 +1,13 @@
 plugins { java }
 
-version = "0.3.1"
+version = "0.4.0"
 val designerSdkVersion = "8.3.9"
 val localSdk = providers.gradleProperty("assistantSdkDir")
     .orElse(providers.systemProperty("user.home").map { "$it/.local/share/ignition-sdk/$designerSdkVersion" })
 
 java { toolchain.languageVersion.set(JavaLanguageVersion.of(17)) }
+
+sourceSets.main { java.srcDir(rootProject.file("designer-rpc/src/main/java")) }
 
 dependencies {
     val sdk = file(localSdk.get())

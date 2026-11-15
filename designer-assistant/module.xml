@@ -4,7 +4,7 @@
     <name>Ignition Designer Assistant</name>
     <id>com.jg.ignition.designerassistant</id>
     <version>${version}</version>
-    <description>Project-aware Designer chat and reviewed UDT creation</description>
+    <description>Project-aware Designer chat with reviewed and automatic changes</description>
     <requiredIgnitionVersion>${sdk}</requiredIgnitionVersion>
     <requiredFrameworkVersion>8</requiredFrameworkVersion>
     <freeModule>true</freeModule>

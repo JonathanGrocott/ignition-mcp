@@ -126,7 +126,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         defaultDryRun: "Dry-run default",
         allowDirectProjectChanges: "Direct project changes",
         authorizationMode: "Authorization mode",
-        authorizationProfiles: "Token profiles",
+        authorizationProfiles: "Authorization profiles",
         mountAlias: "Endpoint alias",
         streamableEnabled: "HTTP transport",
         sseFallbackEnabled: "SSE fallback",
@@ -345,15 +345,15 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
         );
         const invalidToken = profiles.some((item) =>
           (item.tokenPatterns || []).some(
-            (name) => !name.trim() || name.includes(":"),
+            (name) => !name.trim() || (name.includes(":") && !/^designer:[^:\s][^:]*$/.test(name)),
           ),
         );
         const validationError =
           profileError ||
           (invalidProfile >= 0
-            ? `Profile ${invalidProfile + 1} needs a name and at least one API token name.`
+            ? `Profile ${invalidProfile + 1} needs a name and at least one identity pattern.`
             : invalidToken
-              ? "Enter API token names only, without a colon or token secret."
+              ? "Enter API token names without a colon or token secret, or use designer:<username> for signed-in Designer users."
               : LIMITS.some(
                     ([key]) => !Number.isInteger(draft[key]) || draft[key] <= 0,
                   )
@@ -866,7 +866,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
             ),
             card(
               "2. Decide where permissions come from",
-              "Profiles match API token names. Multiple matching profiles combine their grants.",
+              "Profiles can match either API token names or signed-in Designer users. Matching profiles combine their grants.",
               e(
                 React.Fragment,
                 null,
@@ -911,7 +911,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
             ),
             card(
               "3. Configure token profiles",
-              "Use the name before the colon in an API token. Never enter the token secret here.",
+              "For API tokens, enter the name before the colon. For Designer, enter designer:<username>.",
               e(
                 React.Fragment,
                 null,
@@ -973,7 +973,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                   "div",
                                   { className: "mcp-hint mcp-mono" },
                                   (profile.tokenPatterns || []).join(", ") ||
-                                    "Add an API token name",
+                                    "Add an identity pattern",
                                 ),
                               ),
                               pill(
@@ -1020,7 +1020,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                   ),
                                   field(
                                     `profile-${index}-tokens`,
-                                    "API token names",
+                                    "API token or Designer identity patterns",
                                     profile.tokenPatterns || [],
                                     (value) =>
                                       updateProfile(
@@ -1028,7 +1028,7 @@ System.register("com.jg.ignition.mcp.gateway", ["react"], function (_export) {
                                         "tokenPatterns",
                                         value,
                                       ),
-                                    "Exact names or glob patterns, one per line. Example: mcp-operations. Never paste name:secret.",
+                                    "Exact names or glob patterns, one per line. Examples: mcp-operations and designer:jane. Never paste a token secret.",
                                     { list: true },
                                   ),
                                 ),

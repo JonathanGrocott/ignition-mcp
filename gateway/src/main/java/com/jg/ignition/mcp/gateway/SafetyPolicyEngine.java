@@ -9,11 +9,17 @@ import java.util.function.Supplier;
 public class SafetyPolicyEngine {
 
     private final Supplier<McpServerConfigResource> configSupplier;
+    private final boolean designer;
     private final SlidingWindowRateLimiter requestRateLimiter;
     private final SlidingWindowRateLimiter writeRateLimiter;
 
     public SafetyPolicyEngine(Supplier<McpServerConfigResource> configSupplier) {
+        this(configSupplier, false);
+    }
+
+    SafetyPolicyEngine(Supplier<McpServerConfigResource> configSupplier, boolean designer) {
         this.configSupplier = configSupplier;
+        this.designer = designer;
         this.requestRateLimiter = new SlidingWindowRateLimiter(60_000L);
         this.writeRateLimiter = new SlidingWindowRateLimiter(60_000L);
     }
@@ -190,7 +196,7 @@ public class SafetyPolicyEngine {
         return (tokenName == null ? "" : tokenName.trim()) + "/" + (toolName == null ? "" : toolName.trim());
     }
 
-    private static List<String> profilePatterns(
+    private List<String> profilePatterns(
         McpServerConfigResource config,
         String tokenName,
         ProfilePatternKind kind
@@ -200,7 +206,9 @@ public class SafetyPolicyEngine {
         }
         List<String> patterns = new java.util.ArrayList<>();
         for (McpServerConfigResource.AuthorizationProfile profile : config.authorizationProfiles()) {
-            if (profile == null || !matchesAnyStatic(profile.tokenPatterns(), tokenName)) {
+            if (profile == null || profile.tokenPatterns().stream().noneMatch(pattern ->
+                    tokenName != null && pattern.startsWith(DesignerToolEndpoint.ACTOR_PREFIX) == designer
+                        && GlobMatcher.matches(pattern, tokenName))) {
                 continue;
             }
             if (Boolean.TRUE.equals(profile.fullAccess())) {
@@ -239,7 +247,7 @@ public class SafetyPolicyEngine {
     }
 
     private boolean matchesGlobal(McpServerConfigResource config, List<String> patterns, String value) {
-        return !"profiles-only".equals(config.authorizationMode()) && matchesAny(patterns, value);
+        return !designer && !"profiles-only".equals(config.authorizationMode()) && matchesAny(patterns, value);
     }
 
     private enum ProfilePatternKind {

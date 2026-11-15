@@ -3,6 +3,7 @@ package com.jg.ignition.assistant;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.inductiveautomation.ignition.common.browsing.BrowseFilter;
+import com.inductiveautomation.ignition.common.resourcecollection.ChangeOperation;
 import com.inductiveautomation.ignition.common.resourcecollection.Resource;
 import com.inductiveautomation.ignition.common.tags.config.BasicTagConfiguration;
 import com.inductiveautomation.ignition.common.tags.config.CollisionPolicy;
@@ -47,6 +48,18 @@ final class NativeAgentProject implements AgentProject {
 
     @Override public String name() { return context.getProjectName(); }
     @Override public String defaultProvider() { return context.getDefaultTagProviderName(); }
+
+    @Override public void checkProjectChanges(Set<String> paths) throws IOException, InterruptedException {
+        if (paths.isEmpty()) {
+            return;
+        }
+        var unsaved = onEdt(() -> ChangeOperation.changeOpsToIdSet(context.getProject().getChanges()).stream()
+            .map(id -> id.getResourcePath().toString()).filter(paths::contains).findFirst());
+        if (unsaved.isPresent()) {
+            throw new IOException("Save or discard the unsaved Designer changes to " + unsaved.get()
+                + " before editing this resource through the assistant.");
+        }
+    }
 
     @Override public JsonNode inspect(String action, ObjectNode args) throws IOException, InterruptedException {
         return switch (action) {

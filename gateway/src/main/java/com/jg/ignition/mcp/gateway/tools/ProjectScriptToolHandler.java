@@ -550,9 +550,9 @@ public class ProjectScriptToolHandler implements ToolHandler {
         return switch (name) {
             case "ignition.scripts.project.list" -> "List project script resources";
             case "ignition.scripts.project.read" -> "Read one project script resource";
-            case "ignition.scripts.project.write" -> "Create or edit one project script resource";
-            case "ignition.scripts.project.delete" -> "Delete one project script resource";
-            case "ignition.scripts.project.import" -> "Import project script resources from a reviewed project resource bundle";
+            case "ignition.scripts.project.write" -> "Create or edit a legacy or event script. For a native Project Library script use projects.changes.preview/apply";
+            case "ignition.scripts.project.delete" -> "Delete a legacy or event script. Native Project Library scripts use projects.changes.preview/apply";
+            case "ignition.scripts.project.import" -> "Import legacy or event scripts from a project resource bundle. Native Project Library scripts use projects.changes.preview/apply";
             default -> "Project script tool";
         };
     }

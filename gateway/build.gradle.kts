@@ -8,6 +8,8 @@ java {
     }
 }
 
+sourceSets.main { java.srcDir(rootProject.file("designer-rpc/src/main/java")) }
+
 dependencies {
     compileOnly("com.inductiveautomation.ignitionsdk:ignition-common:${rootProject.extra["sdkVersion"]}")
     compileOnly("com.inductiveautomation.ignitionsdk:gateway-api:${rootProject.extra["sdkVersion"]}")
