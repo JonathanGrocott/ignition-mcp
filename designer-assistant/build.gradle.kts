@@ -1,6 +1,6 @@
 plugins { java }
 
-version = "0.4.0"
+version = "0.4.1"
 val designerSdkVersion = "8.3.9"
 val localSdk = providers.gradleProperty("assistantSdkDir")
     .orElse(providers.systemProperty("user.home").map { "$it/.local/share/ignition-sdk/$designerSdkVersion" })
@@ -27,10 +27,12 @@ dependencies {
 
 tasks.test { useJUnitPlatform() }
 
+val descriptorValues = mapOf("version" to version.toString(), "sdk" to designerSdkVersion)
 val moduleDescriptor by tasks.registering(Copy::class) {
+    inputs.properties(descriptorValues)
     from("module.xml")
     into(layout.buildDirectory.dir("descriptor"))
-    expand("version" to project.version, "sdk" to designerSdkVersion)
+    expand(descriptorValues)
 }
 
 val zipModule by tasks.registering(Zip::class) {

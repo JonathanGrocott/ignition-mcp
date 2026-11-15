@@ -1,10 +1,10 @@
-# Designer Assistant 0.4.0
+# Designer Assistant 0.4.1
 
 Designer Assistant is a separate module for **Ignition 8.3.9**. It uses the signed-in Designer session to reach the Ignition MCP Gateway module. The chat discovers the Gateway tool catalog, so scripts, Named Queries, Perspective, project resources, tags, UDTs, alarm pipelines, and available Gateway diagnostics use the same implementations and authorization rules as MCP clients.
 
 ## Install and use
 
-1. Install signed **Ignition MCP 0.5.1** and **Designer Assistant 0.4.0** on the Gateway. Restart the Gateway if the module list shows **Pending restart**, then reopen Designer.
+1. Install signed **Ignition MCP 0.5.1** and **Designer Assistant 0.4.1** on the Gateway. Restart the Gateway if the module list shows **Pending restart**, then reopen Designer.
 2. In **Services → Ignition MCP → Configuration → Access & writes**, add an authorization profile with an identity pattern such as `designer:jane`, using the username from Jane's Designer sign-in. Grant the tools and targets the user should be able to access. Enable Gateway writes if the user needs to apply changes. **Full access** is available for a trusted account on an isolated test Gateway. Keep production grants scoped to the user's work. Existing API token profiles continue to apply to API clients.
 3. In Designer, open your project and find **View → Panels → Designer Assistant**. Configure only the model under **Settings**. Press **Enter** to send and **Shift+Enter** for a new line.
 4. Ask the assistant to inspect an existing resource or give it a specific change and destination. For example, “Create a Project Library script at Utilities/MemoryTags that defines a function for creating two memory tags named test and test1. Save the script without running the function.”
@@ -12,7 +12,7 @@ Designer Assistant is a separate module for **Ignition 8.3.9**. It uses the sign
 
 Use **Attach** to select a project export ZIP or portable JSON resource bundle, then ask what it contains or where to import its resources. Export requests produce a **Save export…** button. The Gateway's existing size, format, conflict, and completeness checks apply.
 
-The active project is taken from the authenticated Designer session. Open another project to work on its resources. Native inspection can see unsaved Designer state. Gateway changes persist directly and check for unsaved edits to their targets. Use **File → Update Project** if saved changes have yet to appear in the open Designer.
+The active project is taken from the authenticated Designer session. Open another project to work on its resources. Native inspection can see unsaved Designer state. Gateway changes persist directly and check for unsaved edits to their targets. After a successful project change, the assistant triggers Designer’s **Update Project** command. Concurrent edits use Designer’s standard conflict dialog. If the update cannot start, the chat points you to **File → Update Project**.
 
 Gateway permissions still control committing changes, running Named Queries, writing live tag values, and acknowledging alarms. Existing simple UDT creation continues to use Designer's native tag permissions. Direct bundle writes require the Gateway's **Direct project changes** setting. Stored plans are scoped to the Designer session and project, expire in ten minutes, and check for changed resources before applying. Scoped profiles for stored plans should grant preview, status and apply plus the relevant resource paths.
 

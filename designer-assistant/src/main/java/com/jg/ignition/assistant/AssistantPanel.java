@@ -342,12 +342,23 @@ final class AssistantPanel extends JPanel {
             actions.setAlignmentX(Component.LEFT_ALIGNMENT);
             card.add(actions);
         } else if (result.projectChanged()) {
-            line(card, "Saved to the Gateway. Use File → Update Project if the change has not appeared in Designer.",
-                palette.muted, false);
+            line(card, "Saved to the Gateway.", palette.muted, false);
         }
         addCard(card);
         remember("assistant", result.summary());
         setStatus(" ");
+        if (result.projectChanged()) {
+            try {
+                if (project.requestProjectUpdate()) {
+                    return;
+                }
+            } catch (RuntimeException e) {
+                System.getLogger(AssistantPanel.class.getName())
+                    .log(System.Logger.Level.WARNING, "Could not start the Designer project update", e);
+            }
+            line(card, "Use File → Update Project to load this change.", palette.muted, false);
+            card.revalidate();
+        }
     }
 
     private void attach() {

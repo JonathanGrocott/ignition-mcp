@@ -15,6 +15,7 @@ import com.inductiveautomation.ignition.common.tags.model.SecurityContext;
 import com.inductiveautomation.ignition.common.tags.model.TagPath;
 import com.inductiveautomation.ignition.common.tags.paths.parser.TagPathParser;
 import com.inductiveautomation.ignition.common.sqltags.model.types.DataType;
+import com.inductiveautomation.ignition.designer.IgnitionDesigner;
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 
 import javax.swing.SwingUtilities;
@@ -311,6 +312,14 @@ final class NativeAgentProject implements AgentProject {
             throw new IOException("Ignition accepted the save but readback did not match. Check " + draft.path() + " before retrying.");
         }
         return draft.receipt();
+    }
+
+    @Override public boolean requestProjectUpdate() {
+        if (context.getFrame() instanceof IgnitionDesigner designer && context.getProject() != null) {
+            designer.updateProject();
+            return true;
+        }
+        return false;
     }
 
     @Override public void showUdt(UdtDraft draft) throws IOException {

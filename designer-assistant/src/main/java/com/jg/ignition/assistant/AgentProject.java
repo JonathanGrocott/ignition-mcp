@@ -13,5 +13,6 @@ interface AgentProject {
     void checkDestination(UdtDraft draft) throws IOException, InterruptedException;
     ObjectNode createUdt(UdtDraft draft) throws IOException, InterruptedException;
     default void checkProjectChanges(Set<String> paths) throws IOException, InterruptedException {}
+    default boolean requestProjectUpdate() { return false; }
     default void showUdt(UdtDraft draft) throws IOException {}
 }
