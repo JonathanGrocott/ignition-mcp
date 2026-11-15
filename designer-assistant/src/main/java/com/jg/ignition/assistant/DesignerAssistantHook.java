@@ -15,14 +15,14 @@ import java.util.List;
 
 public final class DesignerAssistantHook extends AbstractDesignerModuleHook {
     private volatile DockableFrame frame;
-    private AssistantPanel panel;
+    private AssistantDock panel;
 
     @Override
     public void startup(DesignerContext context, LicenseState activationState) throws Exception {
         Runnable create = () -> {
             var rpc = GatewayConnection.getRpcInterface(ProtoRpcSerializer.DEFAULT_INSTANCE, DesignerMcpRpc.MODULE_ID,
                 DesignerMcpRpc.class);
-            panel = new AssistantPanel(new NativeAgentProject(context), AssistantSettings.saved(), new ProjectTools(rpc));
+            panel = new AssistantDock(new NativeAgentProject(context), AssistantSettings.saved(), new ProjectTools(rpc));
 
             DockableFrame dock = new DockableFrame("IgnitionDesignerAssistant");
             dock.setTitle("Designer Assistant");

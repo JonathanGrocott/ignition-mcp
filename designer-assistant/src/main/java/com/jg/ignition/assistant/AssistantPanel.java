@@ -16,6 +16,9 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
+
+import static com.jg.ignition.assistant.AssistantStyle.*;
 
 final class AssistantPanel extends JPanel {
     private static final int MAX_PROMPT = 4_000;
@@ -24,15 +27,12 @@ final class AssistantPanel extends JPanel {
 
     private final AgentProject project;
     private final AssistantAgent agent;
-    private final Palette palette = Palette.current();
-    private final JButton settingsButton = iconButton("Model settings", Glyph.SETTINGS, false);
-    private final JButton newChat = iconButton("New chat", Glyph.PLUS, false);
-    private final JButton send = iconButton("Send", Glyph.SEND, true);
-    private final JButton attach = iconButton("Attach", Glyph.ATTACH, false);
-    private final JButton removeAttachment = iconButton("Remove attachment", Glyph.REMOVE, false);
+    private final Palette palette;
+    private final JButton send;
+    private final JButton attach;
+    private final JButton removeAttachment;
     private final JLabel attachmentLabel = new JLabel();
     private final JPanel attachmentRow = new JPanel(new BorderLayout(6, 0));
-    private final JLabel modelLabel = new JLabel();
     private final JComboBox<AssistantAgent.Mode> permission = new JComboBox<>(AssistantAgent.Mode.values());
     private final Cards cards = new Cards();
     private final JScrollPane messages = new JScrollPane(cards);
@@ -40,50 +40,44 @@ final class AssistantPanel extends JPanel {
     private final JLabel status = new JLabel();
     private final List<ModelProvider.Message> history = new ArrayList<>();
 
-    private AssistantSettings settings;
+    private final Supplier<AssistantSettings> settings;
     private ProjectTools.Attachment attachment;
     private SwingWorker<?, ?> worker;
     private Pending pending;
     private boolean closed;
 
     AssistantPanel(AgentProject project, AssistantSettings initialSettings) {
-        this(project, initialSettings, null);
+        this(project, () -> initialSettings, null, Palette.current());
     }
 
-    AssistantPanel(AgentProject project, AssistantSettings initialSettings, ProjectTools tools) {
-        super(new BorderLayout(0, 8));
+    AssistantPanel(AgentProject project, Supplier<AssistantSettings> settings, ProjectTools tools, Palette palette) {
+        super(new BorderLayout());
         this.project = project;
         this.agent = new AssistantAgent(project, tools);
-        this.settings = initialSettings;
-        setBackground(palette.bg);
-        setBorder(new EmptyBorder(7, 10, 9, 10));
-
-        modelLabel.setForeground(palette.muted);
-        modelLabel.setBorder(new EmptyBorder(0, 3, 0, 0));
-        var header = new JPanel(new BorderLayout(4, 0));
-        header.setOpaque(false);
-        header.add(modelLabel, BorderLayout.CENTER);
-        header.add(row(newChat, settingsButton), BorderLayout.EAST);
-        header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.border));
-        showProvider();
-        add(header, BorderLayout.NORTH);
+        this.settings = settings;
+        this.palette = palette;
+        this.send = iconButton(palette, "Send", Glyph.SEND, true);
+        this.attach = iconButton(palette, "Attach", Glyph.ATTACH, false);
+        this.removeAttachment = iconButton(palette, "Remove attachment", Glyph.REMOVE, false);
+        setBackground(palette.bg());
+        setBorder(new EmptyBorder(3, 0, 0, 0));
 
         cards.setLayout(new TranscriptLayout());
-        cards.setBackground(palette.bg);
+        cards.setBackground(palette.bg());
         cards.setBorder(new EmptyBorder(4, 0, 2, 4));
         messages.setBorder(null);
         messages.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        messages.getViewport().setBackground(palette.bg);
+        messages.getViewport().setBackground(palette.bg());
         messages.getVerticalScrollBar().setUnitIncrement(18);
         messages.getAccessibleContext().setAccessibleName("Designer Assistant conversation");
-        add(messages, BorderLayout.CENTER);
+        messages.setMinimumSize(new Dimension(0, 48));
 
         prompt.setLineWrap(true);
         prompt.setWrapStyleWord(true);
         prompt.setMargin(new Insets(4, 5, 3, 5));
-        prompt.setBackground(palette.panel);
-        prompt.setForeground(palette.text);
-        prompt.setCaretColor(palette.text);
+        prompt.setBackground(palette.panel());
+        prompt.setForeground(palette.text());
+        prompt.setCaretColor(palette.text());
         prompt.setBorder(new EmptyBorder(4, 5, 3, 5));
         prompt.getAccessibleContext().setAccessibleName("Message for Designer Assistant");
         var keys = prompt.getInputMap();
@@ -95,15 +89,16 @@ final class AssistantPanel extends JPanel {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { if (send.isEnabled()) send(); }
         });
         prompt.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent event) { composerChanged(); }
-            @Override public void removeUpdate(DocumentEvent event) { composerChanged(); }
-            @Override public void changedUpdate(DocumentEvent event) { composerChanged(); }
+            @Override public void insertUpdate(DocumentEvent event) { updateControls(); }
+            @Override public void removeUpdate(DocumentEvent event) { updateControls(); }
+            @Override public void changedUpdate(DocumentEvent event) { updateControls(); }
         });
         var input = new JScrollPane(prompt);
+        input.setMinimumSize(new Dimension(0, 36));
         input.setBorder(null);
         input.setOpaque(false);
         input.getViewport().setOpaque(false);
-        var composer = new Surface(palette.panel, palette.border, 16);
+        var composer = new Surface(palette.panel(), palette.border(), 16);
         composer.setLayout(new BorderLayout(4, 2));
         composer.setBorder(new EmptyBorder(6, 6, 5, 6));
         composer.add(input, BorderLayout.CENTER);
@@ -117,7 +112,7 @@ final class AssistantPanel extends JPanel {
             attach.setToolTipText("Attach an Ignition project export or resource bundle");
             attach.addActionListener(event -> attach());
             removeAttachment.addActionListener(event -> setAttachment(null));
-            attachmentLabel.setForeground(palette.muted);
+            attachmentLabel.setForeground(palette.muted());
             attachmentRow.setOpaque(false);
             attachmentRow.setBorder(new EmptyBorder(0, 4, 0, 0));
             attachmentRow.add(attachmentLabel, BorderLayout.CENTER);
@@ -131,7 +126,7 @@ final class AssistantPanel extends JPanel {
         composer.add(composerControls, BorderLayout.SOUTH);
         setAttachment(null);
 
-        status.setForeground(palette.muted);
+        status.setForeground(palette.muted());
         status.setBorder(new EmptyBorder(0, 4, 2, 4));
         status.getAccessibleContext().setAccessibleName("Assistant status");
         status.setVisible(false);
@@ -139,34 +134,19 @@ final class AssistantPanel extends JPanel {
         compose.setOpaque(false);
         compose.add(status, BorderLayout.NORTH);
         compose.add(composer, BorderLayout.CENTER);
-        add(compose, BorderLayout.SOUTH);
+        add(new ComposerSplitPane(messages, compose, palette), BorderLayout.CENTER);
 
         send.addActionListener(event -> send());
-        newChat.addActionListener(event -> clear());
-        settingsButton.addActionListener(event -> settings.edit(this).ifPresent(value -> {
-            if (!settings.provider().equals(value.provider())) {
-                clear();
-            }
-            settings = value;
-            showProvider();
-            setStatus("Model settings saved.");
-        }));
         permission.addActionListener(event -> updatePermissionHint());
         updateControls();
     }
 
-    private void composerChanged() {
-        int rows = Math.min(5, Math.max(2, prompt.getLineCount()));
-        if (prompt.getRows() != rows) {
-            prompt.setRows(rows);
-            revalidate();
-        }
-        updateControls();
+    void focusComposer() {
+        prompt.requestFocusInWindow();
     }
 
-    private void showProvider() {
-        modelLabel.setText(settings.provider().displayName());
-        modelLabel.setToolTipText(settings.provider().connectionDescription());
+    boolean isBusy() {
+        return worker != null;
     }
 
     private void updatePermissionHint() {
@@ -199,7 +179,7 @@ final class AssistantPanel extends JPanel {
         prompt.requestFocusInWindow();
         remember("user", question);
         var input = List.copyOf(history);
-        var model = settings.provider();
+        var model = settings.get().provider();
         var mode = (AssistantAgent.Mode) permission.getSelectedItem();
         run("Thinking…", progress -> () -> agent.run(model, input, mode, file, progress), turn -> {
             turn.exports().forEach(this::showExport);
@@ -215,22 +195,22 @@ final class AssistantPanel extends JPanel {
     }
 
     private void addReview(ChangeReview change) {
-        JPanel card = card(palette.amberBg);
-        line(card, change.title(), palette.amber, true);
+        JPanel card = card(palette.amberBg());
+        line(card, change.title(), palette.amber(), true);
         if (!change.target().isBlank()) {
-            line(card, change.target(), palette.text, false);
+            line(card, change.target(), palette.text(), false);
         }
         var highlights = change.details().stream().filter(detail -> !detail.startsWith("  ")).limit(3).toList();
-        highlights.forEach(detail -> line(card, detail, palette.text, false));
-        JButton approve = textButton("Approve", true);
+        highlights.forEach(detail -> line(card, detail, palette.text(), false));
+        JButton approve = textButton(palette, "Approve", true);
         approve.getAccessibleContext().setAccessibleName(change.approveLabel());
-        JButton dismiss = textButton("Dismiss", false);
+        JButton dismiss = textButton(palette, "Dismiss", false);
         JLabel reviewState = new JLabel();
         reviewState.setVisible(false);
-        reviewState.setForeground(palette.muted);
+        reviewState.setForeground(palette.muted());
         JPanel actions = row(approve, dismiss);
         if (!change.sources().isEmpty() || change.details().size() > highlights.size()) {
-            var details = textButton("Details", false);
+            var details = textButton(palette, "Details", false);
             details.setToolTipText("View change details");
             details.addActionListener(event -> showDetails(change));
             actions.add(details);
@@ -299,10 +279,10 @@ final class AssistantPanel extends JPanel {
     }
 
     private void showApplied(AssistantAgent.Applied result) {
-        JPanel card = card(palette.greenBg);
-        line(card, result.summary(), palette.text, false);
+        JPanel card = card(palette.greenBg());
+        line(card, result.summary(), palette.text(), false);
         if (result.draft() != null) {
-            JButton show = textButton("Show in Tag Browser", false);
+            JButton show = textButton(palette, "Show in Tag Browser", false);
             show.addActionListener(event -> {
                 try {
                     project.showUdt(result.draft());
@@ -327,7 +307,7 @@ final class AssistantPanel extends JPanel {
                 System.getLogger(AssistantPanel.class.getName())
                     .log(System.Logger.Level.WARNING, "Could not start the Designer project update", e);
             }
-            line(card, "Use File → Update Project to load this change.", palette.muted, false);
+            line(card, "Use File → Update Project to load this change.", palette.muted(), false);
             card.revalidate();
         }
     }
@@ -350,13 +330,13 @@ final class AssistantPanel extends JPanel {
     }
 
     private void showExport(ProjectTools.Export export) {
-        var card = card(palette.panel);
-        line(card, "Project resource export", palette.text, true);
+        var card = card(palette.panel());
+        line(card, "Project resource export", palette.text(), true);
         int count = export.bundle().path("resourceCount").asInt();
         String summary = count + (count == 1 ? " resource" : " resources");
         line(card, summary + (export.bundle().path("truncated").asBoolean() ? " (partial export)" : ""),
-            palette.muted, false);
-        var save = textButton("Save export…", false);
+            palette.muted(), false);
+        var save = textButton(palette, "Save export…", false);
         save.addActionListener(event -> {
             if (closed || worker != null) {
                 return;
@@ -387,18 +367,6 @@ final class AssistantPanel extends JPanel {
         remember("assistant", text);
     }
 
-    private void clear() {
-        history.clear();
-        setAttachment(null);
-        resolvePending("Dismissed");
-        cards.removeAll();
-        cards.revalidate();
-        cards.repaint();
-        permission.setSelectedItem(AssistantAgent.Mode.REVIEW);
-        setStatus("");
-        updateControls();
-    }
-
     private void remember(String role, String value) {
         history.add(new ModelProvider.Message(role, value));
         while (history.size() > MAX_HISTORY
@@ -411,12 +379,12 @@ final class AssistantPanel extends JPanel {
     }
 
     private void message(String body, boolean fromUser) {
-        JPanel card = surface(fromUser ? palette.accentBg : palette.bg, null);
+        JPanel card = surface(fromUser ? palette.accentBg() : palette.bg(), null);
         if (!fromUser) {
             card.getAccessibleContext().setAccessibleName("Assistant message");
             card.setBorder(new EmptyBorder(5, 3, 5, 3));
         }
-        line(card, body, palette.text, false);
+        line(card, body, palette.text(), false);
         if (fromUser) {
             card.getAccessibleContext().setAccessibleName("Your message");
             var inset = new JPanel(new TranscriptLayout());
@@ -430,7 +398,7 @@ final class AssistantPanel extends JPanel {
     }
 
     private JPanel card(Color background) {
-        return surface(background, palette.border);
+        return surface(background, palette.border());
     }
 
     private static JPanel surface(Color background, Color border) {
@@ -471,32 +439,6 @@ final class AssistantPanel extends JPanel {
         }
     }
 
-    private static JPanel row(JComponent... components) {
-        return row(FlowLayout.LEADING, components);
-    }
-
-    private static JPanel row(int alignment, JComponent... components) {
-        JPanel row = new JPanel(new FlowLayout(alignment, 4, 0));
-        row.setOpaque(false);
-        for (JComponent component : components) {
-            row.add(component);
-        }
-        return row;
-    }
-
-    private JButton iconButton(String name, Glyph glyph, boolean primary) {
-        var button = new DockButton("", primary);
-        button.setIcon(glyph);
-        button.setDisabledIcon(glyph);
-        button.setToolTipText(name);
-        button.getAccessibleContext().setAccessibleName(name);
-        return button;
-    }
-
-    private JButton textButton(String label, boolean primary) {
-        return new DockButton(label, primary);
-    }
-
     private boolean nearEnd() {
         var bar = messages.getVerticalScrollBar();
         return bar.getMaximum() - bar.getValue() - bar.getVisibleAmount() < 36;
@@ -518,8 +460,6 @@ final class AssistantPanel extends JPanel {
 
     private void updateControls() {
         boolean idle = !closed && worker == null;
-        settingsButton.setEnabled(idle);
-        newChat.setEnabled(idle);
         send.setEnabled(idle && !prompt.getText().isBlank());
         attach.setEnabled(idle);
         removeAttachment.setEnabled(idle);
@@ -572,7 +512,6 @@ final class AssistantPanel extends JPanel {
         resolvePending("Closed");
         history.clear();
         setAttachment(null);
-        settings = null;
         updateControls();
     }
 
@@ -585,125 +524,9 @@ final class AssistantPanel extends JPanel {
             super.paintComponent(graphics);
             if (getDocument().getLength() == 0) {
                 var insets = getInsets();
-                graphics.setColor(palette.muted);
+                graphics.setColor(palette.muted());
                 graphics.drawString("Ask about this project…", insets.left + 1,
                     insets.top + graphics.getFontMetrics().getAscent());
-            }
-        }
-    }
-
-    private final class DockButton extends JButton {
-        private final boolean primary;
-
-        DockButton(String label, boolean primary) {
-            super(label);
-            this.primary = primary;
-            setOpaque(false);
-            setContentAreaFilled(false);
-            setFocusPainted(false);
-            setRolloverEnabled(true);
-            setBorder(new EmptyBorder(5, 6, 5, 6));
-            setForeground(primary ? palette.onAccent : palette.text);
-        }
-
-        @Override protected void paintComponent(Graphics graphics) {
-            var g = (Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                if (primary || getModel().isRollover() || getModel().isArmed()) {
-                    g.setColor(!isEnabled() ? palette.border : primary ? palette.accent : palette.accentBg);
-                    g.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                }
-                if (hasFocus()) {
-                    g.setColor(primary ? palette.onAccent : palette.accent);
-                    g.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 8, 8);
-                }
-            } finally {
-                g.dispose();
-            }
-            super.paintComponent(graphics);
-        }
-    }
-
-    private enum Glyph implements Icon {
-        PLUS, SETTINGS, ATTACH, SEND, REMOVE;
-
-        @Override public int getIconWidth() { return 16; }
-        @Override public int getIconHeight() { return 16; }
-
-        @Override public void paintIcon(Component component, Graphics graphics, int x, int y) {
-            var g = (Graphics2D) graphics.create();
-            try {
-                g.translate(x, y);
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.setColor(component.getForeground());
-                if (!component.isEnabled()) {
-                    g.setComposite(AlphaComposite.SrcOver.derive(.45f));
-                }
-                switch (this) {
-                    case PLUS -> {
-                        g.drawLine(3, 8, 13, 8);
-                        g.drawLine(8, 3, 8, 13);
-                    }
-                    case SETTINGS -> {
-                        g.drawLine(2, 5, 14, 5);
-                        g.drawLine(2, 11, 14, 11);
-                        g.drawLine(6, 3, 6, 7);
-                        g.drawLine(10, 9, 10, 13);
-                    }
-                    case ATTACH -> {
-                        var clip = new java.awt.geom.Path2D.Double();
-                        clip.moveTo(11, 5);
-                        clip.lineTo(5.5, 10.5);
-                        clip.curveTo(4.2, 11.8, 6, 13.4, 7.3, 12.1);
-                        clip.lineTo(13.3, 6.1);
-                        clip.curveTo(15.8, 3.6, 12.4, .7, 10, 3.1);
-                        clip.lineTo(3.1, 10);
-                        clip.curveTo(.5, 12.6, 3.5, 16.5, 6.6, 13.5);
-                        g.draw(clip);
-                    }
-                    case SEND -> {
-                        g.drawLine(8, 3, 8, 13);
-                        g.drawLine(4, 7, 8, 3);
-                        g.drawLine(8, 3, 12, 7);
-                    }
-                    case REMOVE -> {
-                        g.drawLine(4, 4, 12, 12);
-                        g.drawLine(12, 4, 4, 12);
-                    }
-                }
-            } finally {
-                g.dispose();
-            }
-        }
-    }
-
-    private static final class Surface extends JPanel {
-        private final Color fill;
-        private final Color stroke;
-        private final int radius;
-
-        Surface(Color fill, Color stroke, int radius) {
-            this.fill = fill;
-            this.stroke = stroke;
-            this.radius = radius;
-            setOpaque(false);
-        }
-
-        @Override protected void paintComponent(Graphics graphics) {
-            super.paintComponent(graphics);
-            var g = (Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setColor(fill);
-                g.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
-                if (stroke != null) {
-                    g.setColor(stroke);
-                    g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, radius, radius);
-                }
-            } finally {
-                g.dispose();
             }
         }
     }
@@ -716,20 +539,4 @@ final class AssistantPanel extends JPanel {
         @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 
-    private record Palette(Color bg, Color panel, Color text, Color muted, Color border,
-                           Color accent, Color accentBg, Color amber, Color amberBg, Color greenBg, Color onAccent) {
-        static Palette current() {
-            var background = UIManager.getColor("Panel.background");
-            boolean dark = background != null && background.getRed() + background.getGreen() + background.getBlue() < 384;
-            return dark
-                ? colors(0x111922, 0x19232e, 0xe9eff5, 0xa6b7c8, 0x344454, 0x8ab9ff, 0x203c5b, 0xf2c982, 0x29271f, 0x1b2c26, 0x111922)
-                : colors(0xf4f6f9, 0xffffff, 0x202f40, 0x53667b, 0xd8e0e9, 0x215fa1, 0xeaf2fd, 0x795010, 0xfff7ea, 0xeef6f1, 0xffffff);
-        }
-
-        private static Palette colors(int bg, int panel, int text, int muted, int border, int accent,
-                                      int accentBg, int amber, int amberBg, int greenBg, int onAccent) {
-            return new Palette(new Color(bg), new Color(panel), new Color(text), new Color(muted), new Color(border),
-                new Color(accent), new Color(accentBg), new Color(amber), new Color(amberBg), new Color(greenBg), new Color(onAccent));
-        }
-    }
 }

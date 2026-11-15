@@ -1,14 +1,16 @@
-# Designer Assistant 0.4.2
+# Designer Assistant 0.4.3
 
 Designer Assistant is a separate module for **Ignition 8.3.9**. It uses the signed-in Designer session to reach the Ignition MCP Gateway module. The chat discovers the Gateway tool catalog, so scripts, Named Queries, Perspective, project resources, tags, UDTs, alarm pipelines, and available Gateway diagnostics use the same implementations and authorization rules as MCP clients.
 
 ## Install and use
 
-1. Install signed **Ignition MCP 0.5.1** and **Designer Assistant 0.4.2** on the Gateway. Restart the Gateway if the module list shows **Pending restart**, then reopen Designer.
+1. Install signed **Ignition MCP 0.5.1** and **Designer Assistant 0.4.3** on the Gateway. Restart the Gateway if the module list shows **Pending restart**, then reopen Designer.
 2. In **Services → Ignition MCP → Configuration → Access & writes**, add an authorization profile with an identity pattern such as `designer:jane`, using the username from Jane's Designer sign-in. Grant the tools and targets the user should be able to access. Enable Gateway writes if the user needs to apply changes. **Full access** is available for a trusted account on an isolated test Gateway. Keep production grants scoped to the user's work. Existing API token profiles continue to apply to API clients.
-3. In Designer, open your project and find **View → Panels → Designer Assistant**. Open **Model settings** in the header to configure your provider. Press **Enter** to send and **Shift+Enter** for a new line.
+3. In Designer, open your project and find **View → Panels → Designer Assistant**. Open **Model settings** in the header to configure your provider. Press **Enter** to send and **Shift+Enter** for a new line. Drag the handle above the message box to resize it.
 4. Ask the assistant to inspect an existing resource or give it a specific change and destination. For example, “Create a Project Library script at Utilities/MemoryTags that defines a function for creating two memory tags named test and test1. Save the script without running the function.”
 5. With **Review** selected beside the composer, choose **Details** to see Python, SQL, component summaries, and resource changes when available. Select **Approve** when the proposed change is ready. You can dismiss a proposal or send a revision. **Auto-apply** applies permitted changes within the current chat. New chats start in review mode.
+
+Choose **New chat** to open a tab. Switch between tabs to return to each conversation, draft, and pending proposal. Model settings are shared across tabs. Chats are kept while Designer is open.
 
 Use **Attach** to select a project export ZIP or portable JSON resource bundle, then ask what it contains or where to import its resources. Export requests produce a **Save export…** button. The Gateway's existing size, format, conflict, and completeness checks apply.
 

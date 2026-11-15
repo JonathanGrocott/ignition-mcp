@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.KeyStroke;
@@ -16,6 +18,7 @@ import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -62,7 +65,10 @@ class AssistantAgentTest {
         model.start();
         var settings = new AssistantSettings(new ModelProvider.Settings(ModelProvider.Kind.OPENAI_COMPATIBLE,
             "http://127.0.0.1:" + model.getAddress().getPort(), "qa", "", "", "", ""));
-        AssistantPanel dock = edt(() -> new AssistantPanel(project, settings));
+        var workspace = edt(() -> new AssistantDock(project, settings, null));
+        var tabs = edt(() -> components(workspace).filter(JTabbedPane.class::isInstance).map(JTabbedPane.class::cast)
+            .findFirst().orElseThrow());
+        var dock = edt(() -> (AssistantPanel) tabs.getSelectedComponent());
         try {
             edt(() -> {
                 JTextArea input = composer(dock);
@@ -84,6 +90,26 @@ class AssistantAgentTest {
             assertTrue(hasText(dock, "Faulted   Boolean · Memory"));
             assertFalse(hasText(dock, "create_udt"));
             assertTrue(project.writes.isEmpty());
+            edt(() -> { composer(dock).setText("Draft in Chat 1"); return null; });
+            click(workspace, "New chat");
+            var otherChat = edt(() -> (AssistantPanel) tabs.getSelectedComponent());
+            assertNotSame(dock, otherChat);
+            assertEquals(2, edt(tabs::getTabCount));
+            assertEquals("", edt(() -> composer(otherChat).getText()));
+            assertFalse(hasText(otherChat, "Utilities/Cooling/Pump"));
+            assertFalse(enabled(otherChat, "Approve creation"));
+            edt(() -> {
+                composer(otherChat).setText("Inspect the scripts");
+                buttons(otherChat, "Send").findFirst().orElseThrow().doClick();
+                tabs.setSelectedComponent(dock);
+                return null;
+            });
+            waitFor(() -> hasText(otherChat, "The project has the script Utilities/Runtime."));
+            assertEquals("Draft in Chat 1", edt(() -> composer(dock).getText()));
+            assertTrue(enabled(dock, "Approve creation"));
+            click(edt(() -> (Container) tabs.getTabComponentAt(1)), "Close Chat 2");
+            assertEquals(1, edt(tabs::getTabCount));
+            assertSame(dock, edt(tabs::getSelectedComponent));
             click(dock, "Dismiss");
             assertTrue(project.writes.isEmpty());
 
@@ -105,9 +131,38 @@ class AssistantAgentTest {
                 project.writes);
             assertTrue(project.reads.contains("browse_udts"));
         } finally {
-            edt(() -> { dock.close(); return null; });
+            edt(() -> { workspace.close(); return null; });
             model.stop(0);
         }
+    }
+
+    @Test
+    void dividerCanGiveTheComposerMoreHeight() throws Exception {
+        edt(() -> {
+            var dock = new AssistantPanel(new TestProject(), new AssistantSettings(new ModelProvider.Settings(
+                ModelProvider.Kind.CODEX_CLI, "", "", "", "", "", "")));
+            var split = components(dock).filter(JSplitPane.class::isInstance).map(JSplitPane.class::cast)
+                .findFirst().orElseThrow();
+            split.setSize(240, 400);
+            split.doLayout();
+            int originalHeight = split.getBottomComponent().getHeight();
+            split.setDividerLocation(split.getTopComponent().getHeight() - 60);
+            split.doLayout();
+            assertEquals(originalHeight + 60, split.getBottomComponent().getHeight());
+            assertTrue(split.getTopComponent().getHeight() >= split.getTopComponent().getMinimumSize().height);
+
+            var graphics = new BufferedImage(240, 400, BufferedImage.TYPE_INT_RGB).createGraphics();
+            try {
+                split.paint(graphics);
+            } finally {
+                graphics.dispose();
+            }
+            split.setSize(240, 500);
+            split.doLayout();
+            assertEquals(originalHeight + 60, split.getBottomComponent().getHeight());
+            dock.close();
+            return null;
+        });
     }
 
     @Test
@@ -207,14 +262,14 @@ class AssistantAgentTest {
         return edt(() -> buttons(dock, title).anyMatch(JButton::isEnabled));
     }
 
-    private static void click(AssistantPanel dock, String title) throws Exception {
+    private static void click(Container dock, String title) throws Exception {
         edt(() -> {
             buttons(dock, title).filter(JButton::isEnabled).findFirst().orElseThrow().doClick();
             return null;
         });
     }
 
-    private static Stream<JButton> buttons(AssistantPanel dock, String title) {
+    private static Stream<JButton> buttons(Container dock, String title) {
         return components(dock).filter(JButton.class::isInstance).map(JButton.class::cast)
             .filter(button -> button.isVisible() && title.equals(button.getAccessibleContext().getAccessibleName()));
     }
