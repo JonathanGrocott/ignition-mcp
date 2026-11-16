@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.inductiveautomation.ignition.common.browsing.BrowseFilter;
 import com.inductiveautomation.ignition.common.resourcecollection.ChangeOperation;
 import com.inductiveautomation.ignition.common.resourcecollection.Resource;
+import com.inductiveautomation.ignition.common.resourcecollection.ResourceType;
 import com.inductiveautomation.ignition.common.tags.config.BasicTagConfiguration;
 import com.inductiveautomation.ignition.common.tags.config.CollisionPolicy;
 import com.inductiveautomation.ignition.common.tags.config.TagConfiguration;
@@ -49,6 +50,7 @@ final class NativeAgentProject implements AgentProject {
 
     @Override public String name() { return context.getProjectName(); }
     @Override public String defaultProvider() { return context.getDefaultTagProviderName(); }
+    @Override public ObjectNode designerContext() { return DesignerSelection.capture(context); }
 
     @Override public void checkProjectChanges(Set<String> paths) throws IOException, InterruptedException {
         if (paths.isEmpty()) {
@@ -213,16 +215,22 @@ final class NativeAgentProject implements AgentProject {
     }
 
     private static boolean matches(Resource resource, String kind) {
-        if (resource.isFolder()) {
-            return false;
+        return !resource.isFolder() && kind.equals(resourceKind(resource.getResourceType()));
+    }
+
+    static String resourceKind(ResourceType type) {
+        if ("com.inductiveautomation.perspective".equals(type.moduleId())) {
+            return "perspective";
         }
-        var type = resource.getResourceType();
-        return switch (kind) {
-            case "perspective" -> "com.inductiveautomation.perspective".equals(type.moduleId());
-            case "scripts" -> "ignition".equals(type.moduleId()) && SCRIPT_TYPES.contains(type.typeId());
-            case "namedQueries" -> "ignition".equals(type.moduleId()) && "named-query".equals(type.typeId());
-            default -> false;
-        };
+        if ("ignition".equals(type.moduleId())) {
+            if (SCRIPT_TYPES.contains(type.typeId())) {
+                return "scripts";
+            }
+            if ("named-query".equals(type.typeId())) {
+                return "namedQueries";
+            }
+        }
+        return null;
     }
 
     private static String path(Resource resource) {

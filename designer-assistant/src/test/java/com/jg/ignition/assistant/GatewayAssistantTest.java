@@ -30,14 +30,14 @@ class GatewayAssistantTest {
             String review = "[default]_types_/Packaging/Line 1/" + motor;
             String auto = "[default]_types_/Utilities/Cooling/" + pump;
 
-            var inspection = agent.run(model, prompt("What is in the current project?"), AssistantAgent.Mode.REVIEW, null, null, ignored -> {});
+            var inspection = agent.run(model, prompt("What is in the current project?"), AssistantAgent.Mode.REVIEW, null, null, JSON.createObjectNode(), ignored -> {});
             assertTrue(inspection.reply().contains(gateway.name()));
             assertTrue(inspection.reply().contains("Packaging"));
             assertTrue(inspection.reply().contains("Scripts"));
             assertTrue(inspection.reply().contains("Perspective"));
 
             var proposal = agent.run(model, prompt("Create " + motor + " UDT in Packaging/Line 1"),
-                AssistantAgent.Mode.REVIEW, null, null, ignored -> {});
+                AssistantAgent.Mode.REVIEW, null, null, JSON.createObjectNode(), ignored -> {});
             assertNotNull(proposal.pending(), proposal.reply());
             assertEquals(review, proposal.pending().target());
             assertFalse(gateway.exists(review), "Review wrote before approval");
@@ -45,7 +45,7 @@ class GatewayAssistantTest {
             assertTrue(gateway.exists(review));
 
             var applied = agent.run(model, prompt("Create " + pump + " UDT in Utilities/Cooling"),
-                AssistantAgent.Mode.AUTO, null, null, ignored -> {});
+                AssistantAgent.Mode.AUTO, null, null, JSON.createObjectNode(), ignored -> {});
             assertNull(applied.pending());
             assertNotNull(applied.applied(), applied.reply());
             assertEquals(auto, applied.applied().draft().path());

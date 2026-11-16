@@ -97,7 +97,7 @@ class ToolResultPagesTest {
             };
             var agent = new AssistantAgent(project, null);
             var result = agent.run(settings, List.of(new ModelProvider.Message("user", "Read my recovery file")),
-                AssistantAgent.Mode.REVIEW, attachment, null, ignored -> {});
+                AssistantAgent.Mode.REVIEW, attachment, null, JSON.createObjectNode(), ignored -> {});
             assertEquals("The final record is verified.", result.reply());
             assertEquals(3, requests.size());
             assertTrue(requests.get(1).contains("readPointer"));

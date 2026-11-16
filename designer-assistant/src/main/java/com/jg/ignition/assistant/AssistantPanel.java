@@ -175,6 +175,7 @@ final class AssistantPanel extends JPanel {
             setStatus("Open an Ignition project first.");
             return;
         }
+        var designerContext = project.designerContext().deepCopy();
         var previousFile = lastJsonAttachment;
         if (file != null && file.json() != null) {
             lastJsonAttachment = file;
@@ -191,7 +192,7 @@ final class AssistantPanel extends JPanel {
         var input = List.copyOf(history);
         var model = settings.get().provider();
         var mode = (AssistantAgent.Mode) permission.getSelectedItem();
-        run("Thinking…", progress -> () -> agent.run(model, input, mode, file, previousFile, progress), turn -> {
+        run("Thinking…", progress -> () -> agent.run(model, input, mode, file, previousFile, designerContext, progress), turn -> {
             turn.exports().forEach(this::showExport);
             if (!turn.reply().isBlank()) {
                 reply(turn.reply());

@@ -1,5 +1,8 @@
 package com.jg.ignition.assistant;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
@@ -15,6 +18,8 @@ final class AssistantDock extends JPanel {
     private final ProjectTools tools;
     private final Palette palette = Palette.current();
     private final JLabel modelLabel = new JLabel();
+    private final JLabel contextLabel = new JLabel();
+    private final Timer contextTimer = new Timer(500, event -> showContext());
     private final JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
     private AssistantSettings settings;
 
@@ -39,6 +44,12 @@ final class AssistantDock extends JPanel {
         header.setOpaque(false);
         header.add(modelLabel, BorderLayout.CENTER);
         header.add(row(newChat, modelSettings), BorderLayout.EAST);
+        contextLabel.setForeground(palette.muted());
+        contextLabel.setFont(contextLabel.getFont().deriveFont(contextLabel.getFont().getSize2D() - 1));
+        contextLabel.setBorder(new EmptyBorder(1, 3, 2, 0));
+        contextLabel.getAccessibleContext().setAccessibleName("Current Designer context");
+        contextLabel.setVisible(false);
+        header.add(contextLabel, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
         showProvider();
 
@@ -61,6 +72,57 @@ final class AssistantDock extends JPanel {
     private void showProvider() {
         modelLabel.setText(settings.provider().displayName());
         modelLabel.setToolTipText(settings.provider().connectionDescription());
+    }
+
+    @Override public void addNotify() {
+        super.addNotify();
+        contextTimer.start();
+    }
+
+    @Override public void removeNotify() {
+        contextTimer.stop();
+        super.removeNotify();
+    }
+
+    private void showContext() {
+        if (!isShowing()) {
+            return;
+        }
+        String label = contextLabel(project.designerContext());
+        contextLabel.setText(label);
+        contextLabel.setToolTipText(label.isEmpty() ? null : label);
+        contextLabel.setVisible(!label.isEmpty());
+    }
+
+    static String contextLabel(ObjectNode context) {
+        var active = context.path("activeResource");
+        if (active.isObject()) {
+            String label = switch (active.path("kind").asText()) {
+                case "perspective" -> "Perspective";
+                case "scripts" -> "Script";
+                case "namedQueries" -> "Named Query";
+                default -> "Editor";
+            };
+            var selection = context.path("perspectiveSelection");
+            var component = selection.path("components").path(0);
+            int count = selection.path("count").asInt();
+            String selected = count > 1 ? count + " components" : component.path("name").asText(component.path("type").asText());
+            return label + "  ·  " + resourceLabel(active) + (selected.isEmpty() ? "" : "  ·  " + selected);
+        }
+        var tags = context.path("tagBrowserSelection");
+        if (tags.size() > 0) {
+            var tag = tags.path(0);
+            String label = "udt".equals(tag.path("kind").asText()) ? "UDT Definitions" : "Tag Browser";
+            return label + "  ·  " + (tags.size() > 1 ? tags.size() + " selected" : tag.path("path").asText());
+        }
+        var resources = context.path("projectBrowserSelection");
+        return resources.size() == 0 ? "" : "Project Browser  ·  "
+            + (resources.size() > 1 ? resources.size() + " selected" : resourceLabel(resources.path(0)));
+    }
+
+    private static String resourceLabel(JsonNode resource) {
+        String path = resource.path("path").asText();
+        return "_unary".equals(path) ? resource.path("title").asText(path) : path;
     }
 
     private void addChat(boolean focus) {
@@ -154,6 +216,7 @@ final class AssistantDock extends JPanel {
     }
 
     void close() {
+        contextTimer.stop();
         for (int index = 0; index < tabs.getTabCount(); index++) {
             Component component = tabs.getComponentAt(index);
             ((AssistantPanel) component).close();

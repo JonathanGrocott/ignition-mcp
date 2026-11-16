@@ -9,6 +9,7 @@ import java.util.Set;
 interface AgentProject {
     String name();
     String defaultProvider();
+    default ObjectNode designerContext() { return AssistantJson.JSON.createObjectNode(); }
     JsonNode inspect(String action, ObjectNode args) throws IOException, InterruptedException;
     void checkDestination(UdtDraft draft) throws IOException, InterruptedException;
     ObjectNode createUdt(UdtDraft draft) throws IOException, InterruptedException;

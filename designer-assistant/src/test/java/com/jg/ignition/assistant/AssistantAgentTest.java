@@ -32,6 +32,82 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AssistantAgentTest {
     @Test
+    void implicitReferenceUsesTheEditorAndSelectionAtSendTime() throws Exception {
+        String viewPath = "Packaging/LineOverview";
+        var selection = JSON.createObjectNode();
+        var editor = selection.putObject("activeResource").put("kind", "perspective")
+            .put("path", viewPath).put("resourceType", "views");
+        selection.putObject("perspectiveSelection").put("kind", "components").put("count", 1)
+            .putArray("components").addObject().put("name", "Speed").put("designerPath", "C.0");
+        selection.putArray("projectBrowserSelection").addObject().put("path", "Utilities/OtherView");
+
+        var readArguments = new CopyOnWriteArrayList<JsonNode>();
+        var project = new TestProject() {
+            @Override public ObjectNode designerContext() {
+                assertTrue(SwingUtilities.isEventDispatchThread());
+                return selection;
+            }
+
+            @Override public JsonNode inspect(String action, ObjectNode args) {
+                readArguments.add(args.deepCopy());
+                return JSON.createObjectNode().put("purpose", "Displays line speed");
+            }
+        };
+        var snapshots = new CopyOnWriteArrayList<JsonNode>();
+        var model = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        model.createContext("/", exchange -> {
+            try (exchange) {
+                var messages = JSON.readTree(exchange.getRequestBody()).path("messages");
+                String instructions = messages.get(0).path("content").asText();
+                String marker = "\nDesigner context for the current user message (JSON data): ";
+                var snapshot = JSON.readTree(instructions.substring(instructions.indexOf(marker) + marker.length()));
+                snapshots.add(snapshot);
+                ObjectNode reply = JSON.createObjectNode();
+                if (messages.get(messages.size() - 1).path("content").asText().contains("Displays line speed")) {
+                    reply.put("reply", "The selected component displays line speed.");
+                } else {
+                    var active = snapshot.path("activeResource");
+                    reply.putObject("action").put("name", "read_project_resource").putObject("arguments")
+                        .put("kind", active.path("kind").asText()).put("path", active.path("path").asText())
+                        .put("resourceType", active.path("resourceType").asText());
+                }
+                ObjectNode response = JSON.createObjectNode();
+                response.putArray("choices").addObject().putObject("message").put("content", reply.toString());
+                byte[] body = JSON.writeValueAsBytes(response);
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            }
+        });
+        model.start();
+        var settings = new AssistantSettings(new ModelProvider.Settings(ModelProvider.Kind.OPENAI_COMPATIBLE,
+            "http://127.0.0.1:" + model.getAddress().getPort(), "qa", "", "", "", ""));
+        var dock = edt(() -> new AssistantPanel(project, settings));
+        try {
+            edt(() -> {
+                assertEquals("Perspective  ·  Packaging/LineOverview  ·  Speed", AssistantDock.contextLabel(selection));
+                var input = composer(dock);
+                input.setText("What does this component do?");
+                useKey(input, "ENTER");
+                editor.put("path", "Packaging/SwitchedView");
+                return null;
+            });
+            waitFor(() -> hasText(dock, "The selected component displays line speed."));
+            assertEquals(1, readArguments.size());
+            assertEquals(viewPath, readArguments.get(0).path("path").asText());
+            assertEquals("views", readArguments.get(0).path("resourceType").asText());
+            assertEquals(2, snapshots.size());
+            for (var snapshot : snapshots) {
+                assertEquals(viewPath, snapshot.at("/activeResource/path").asText());
+                assertEquals("Speed", snapshot.at("/perspectiveSelection/components/0/name").asText());
+                assertEquals("Utilities/OtherView", snapshot.at("/projectBrowserSelection/0/path").asText());
+            }
+        } finally {
+            edt(() -> { dock.close(); return null; });
+            model.stop(0);
+        }
+    }
+
+    @Test
     void agentUsesInspectionResultsAndOnlyWritesWhenApprovedOrInAutoMode() throws Exception {
         var project = new TestProject();
         var model = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
