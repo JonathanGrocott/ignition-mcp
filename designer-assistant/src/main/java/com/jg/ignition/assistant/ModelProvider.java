@@ -64,7 +64,7 @@ final class ModelProvider {
     private static final int HTTP_TIMEOUT_SECONDS = 90;
     private static final int CODEX_TIMEOUT_SECONDS = 150;
     private static final int MAX_CODEX_OUTPUT = 1_048_576;
-    private static final int MAX_PROMPT = 131_072;
+    static final int MAX_PROMPT = 131_072;
     private static final int MAX_REPLY = 32_768;
     private static final Pattern ENV_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern MCP_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,128}");

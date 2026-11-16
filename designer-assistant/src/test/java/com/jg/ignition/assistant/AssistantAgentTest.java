@@ -107,9 +107,11 @@ class AssistantAgentTest {
             waitFor(() -> hasText(otherChat, "The project has the script Utilities/Runtime."));
             assertEquals("Draft in Chat 1", edt(() -> composer(dock).getText()));
             assertTrue(enabled(dock, "Approve creation"));
-            click(edt(() -> (Container) tabs.getTabComponentAt(1)), "Close Chat 2");
+            assertEquals("Inspect the scripts", edt(() -> tabs.getTitleAt(1)));
+            click(edt(() -> (Container) tabs.getTabComponentAt(1)), "Close Inspect the scripts");
             assertEquals(1, edt(tabs::getTabCount));
             assertSame(dock, edt(tabs::getSelectedComponent));
+            assertEquals("Inspect the scripts", edt(() -> tabs.getTitleAt(0)));
             click(dock, "Dismiss");
             assertTrue(project.writes.isEmpty());
 

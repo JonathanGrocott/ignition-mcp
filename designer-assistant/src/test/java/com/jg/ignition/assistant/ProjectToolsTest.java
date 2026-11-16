@@ -64,7 +64,7 @@ class ProjectToolsTest {
                 "http://127.0.0.1:" + server.getAddress().getPort(), "fixture", "", "", "", "");
             var agent = new AssistantAgent(project, new ProjectTools(rpc));
             var input = List.of(new ModelProvider.Message("user", "Create a Project Library script in Fixture/Example"));
-            var turn = agent.run(settings, input, AssistantAgent.Mode.REVIEW, null, ignored -> {});
+            var turn = agent.run(settings, input, AssistantAgent.Mode.REVIEW, null, null, ignored -> {});
             assertNotNull(turn.pending(), turn.reply());
             assertEquals("Create project script", turn.pending().title());
             assertEquals(CODE, turn.pending().sources().get(0).text());
@@ -74,7 +74,7 @@ class ProjectToolsTest {
             assertTrue(turn.pending().apply().call().projectChanged());
             assertEquals(calls.get(0).deepCopy().put("commit", true), calls.get(1));
 
-            assertNotNull(agent.run(settings, input, AssistantAgent.Mode.AUTO, null, ignored -> {}).applied());
+            assertNotNull(agent.run(settings, input, AssistantAgent.Mode.AUTO, null, null, ignored -> {}).applied());
             assertEquals(List.of(false, true, false, true), calls.stream().map(c -> c.get("commit").booleanValue()).toList());
         } finally {
             server.stop(0);

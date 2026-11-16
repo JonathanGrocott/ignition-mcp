@@ -42,6 +42,7 @@ final class AssistantPanel extends JPanel {
 
     private final Supplier<AssistantSettings> settings;
     private ProjectTools.Attachment attachment;
+    private ProjectTools.Attachment lastJsonAttachment;
     private SwingWorker<?, ?> worker;
     private Pending pending;
     private boolean closed;
@@ -109,7 +110,7 @@ final class AssistantPanel extends JPanel {
         var composerControls = new JPanel(new BorderLayout(6, 0));
         composerControls.setOpaque(false);
         if (tools != null) {
-            attach.setToolTipText("Attach an Ignition project export or resource bundle");
+            attach.setToolTipText("Attach a JSON file or Ignition project export ZIP");
             attach.addActionListener(event -> attach());
             removeAttachment.addActionListener(event -> setAttachment(null));
             attachmentLabel.setForeground(palette.muted());
@@ -156,7 +157,9 @@ final class AssistantPanel extends JPanel {
     }
 
     private void send() {
-        String question = prompt.getText().strip();
+        var file = attachment;
+        String draft = prompt.getText().strip();
+        String question = draft.isEmpty() && file != null ? "Inspect the attached file." : draft;
         if (closed || worker != null) {
             return;
         }
@@ -172,16 +175,23 @@ final class AssistantPanel extends JPanel {
             setStatus("Open an Ignition project first.");
             return;
         }
+        var previousFile = lastJsonAttachment;
+        if (file != null && file.json() != null) {
+            lastJsonAttachment = file;
+        }
         prompt.setText("");
-        var file = attachment;
+        setAttachment(null);
         message(file == null ? question : question + "\n" + file.name(), true);
         scrollToEnd();
         prompt.requestFocusInWindow();
+        if (history.isEmpty()) {
+            firePropertyChange("firstPrompt", null, draft.isEmpty() && file != null ? file.name() : question);
+        }
         remember("user", question);
         var input = List.copyOf(history);
         var model = settings.get().provider();
         var mode = (AssistantAgent.Mode) permission.getSelectedItem();
-        run("Thinking…", progress -> () -> agent.run(model, input, mode, file, progress), turn -> {
+        run("Thinking…", progress -> () -> agent.run(model, input, mode, file, previousFile, progress), turn -> {
             turn.exports().forEach(this::showExport);
             if (!turn.reply().isBlank()) {
                 reply(turn.reply());
@@ -314,7 +324,7 @@ final class AssistantPanel extends JPanel {
 
     private void attach() {
         var chooser = new JFileChooser();
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Ignition exports and bundles", "zip", "json"));
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files and Ignition project exports", "json", "zip"));
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             Path file = chooser.getSelectedFile().toPath();
             run("Opening attachment…", ignored -> () -> ProjectTools.Attachment.read(file), this::setAttachment);
@@ -327,6 +337,7 @@ final class AssistantPanel extends JPanel {
         attachmentLabel.setToolTipText(file == null ? null : file.name());
         attachmentRow.setVisible(file != null);
         revalidate();
+        updateControls();
     }
 
     private void showExport(ProjectTools.Export export) {
@@ -460,7 +471,7 @@ final class AssistantPanel extends JPanel {
 
     private void updateControls() {
         boolean idle = !closed && worker == null;
-        send.setEnabled(idle && !prompt.getText().isBlank());
+        send.setEnabled(idle && (attachment != null || !prompt.getText().isBlank()));
         attach.setEnabled(idle);
         removeAttachment.setEnabled(idle);
         prompt.setEditable(!closed);
@@ -511,6 +522,7 @@ final class AssistantPanel extends JPanel {
         }
         resolvePending("Closed");
         history.clear();
+        lastJsonAttachment = null;
         setAttachment(null);
         updateControls();
     }

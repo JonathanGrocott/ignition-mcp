@@ -1,5 +1,6 @@
 package com.jg.ignition.assistant;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jg.ignition.mcp.bridge.DesignerMcpRpc;
@@ -21,7 +22,8 @@ final class ProjectTools {
     static final String APPLY = "ignition.projects.changes.apply";
     static final String STATUS = "ignition.projects.changes.status";
     static final String DEFINITIONS = "ignition.tags.definition.write";
-    private static final int MAX_ATTACHMENT_BYTES = 2_097_152;
+    private static final int MAX_IMPORT_BYTES = 2_097_152;
+    private static final int MAX_JSON_ATTACHMENT_BYTES = 4_194_304;
     private final DesignerMcpRpc rpc;
 
     ProjectTools(DesignerMcpRpc rpc) {
@@ -135,30 +137,51 @@ final class ProjectTools {
         }
     }
 
-    record Attachment(String name, ObjectNode bundle, String zipBase64) {
+    record Attachment(String name, JsonNode json, String zipBase64) {
         static Attachment read(Path file) throws IOException {
             String name = file.getFileName().toString();
+            String extension = name.toLowerCase(Locale.ROOT);
+            boolean zip = extension.endsWith(".zip");
+            if (!zip && !extension.endsWith(".json")) {
+                throw new IOException("Select a JSON file or an Ignition project export ZIP.");
+            }
+            int limit = zip ? MAX_IMPORT_BYTES : MAX_JSON_ATTACHMENT_BYTES;
             try (InputStream stream = Files.newInputStream(file)) {
-                byte[] bytes = stream.readNBytes(MAX_ATTACHMENT_BYTES + 1);
-                if (bytes.length > MAX_ATTACHMENT_BYTES) {
-                    throw new IOException("The attachment exceeds the 2 MiB project import limit.");
+                byte[] bytes = stream.readNBytes(limit + 1);
+                if (bytes.length > limit) {
+                    throw new IOException(zip ? "An Ignition ZIP attachment can be up to 2 MiB."
+                        : "A JSON attachment can be up to 4 MiB.");
                 }
-                String extension = name.toLowerCase(Locale.ROOT);
-                if (extension.endsWith(".zip")) {
+                if (zip) {
                     return new Attachment(name, null, Base64.getEncoder().encodeToString(bytes));
                 }
-                if (extension.endsWith(".json") && JSON.readTree(bytes) instanceof ObjectNode bundle) {
-                    return new Attachment(name, bundle, null);
+                try {
+                    JsonNode contents = JSON.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(bytes);
+                    if (contents == null || contents.isMissingNode()) {
+                        throw new IOException("The attached JSON file is empty.");
+                    }
+                    return new Attachment(name, contents, null);
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    throw new IOException("The attachment is not valid JSON.", e);
                 }
-                throw new IOException("Select an Ignition project export ZIP or a project resource bundle JSON.");
             }
+        }
+
+        ObjectNode inspect() throws IOException {
+            if (json == null) {
+                throw new IOException("Use the Ignition project ZIP inspector to read the attached archive.");
+            }
+            return JSON.createObjectNode().put("name", name).set("contents", json);
         }
 
         void insert(Tool tool, ObjectNode arguments) throws IOException {
             JsonNode properties = tool.schema().path("properties");
-            if (bundle != null && properties.has("bundle")) {
+            if (json != null && json.isObject() && properties.has("bundle")) {
+                if (JSON.writeValueAsBytes(json).length > MAX_IMPORT_BYTES) {
+                    throw new IOException("The JSON can be inspected here. A project import bundle can be up to 2 MiB.");
+                }
                 arguments.remove("zipBase64");
-                arguments.set("bundle", bundle.deepCopy());
+                arguments.set("bundle", json);
             } else if (zipBase64 != null && properties.has("zipBase64")) {
                 arguments.remove("bundle");
                 arguments.put("zipBase64", zipBase64);

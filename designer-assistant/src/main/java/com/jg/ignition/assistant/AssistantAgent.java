@@ -6,6 +6,7 @@ import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath;
 import com.inductiveautomation.ignition.common.resourcecollection.ResourceType;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -24,8 +25,9 @@ final class AssistantAgent {
         @Override public String toString() { return label; }
     }
 
-    private static final int MAX_READS = 8;
-    private static final int MAX_RESULT = 9_000;
+    private static final int MAX_READS = 16;
+    private static final String READ_RESULT = "read_tool_result";
+    private static final String READ_ATTACHMENT = "read_attachment";
     private static final Set<String> READS = Set.of(
         "project_overview", "list_project_resources", "read_project_resource",
         "list_tag_providers", "browse_tags", "browse_udts", "read_tag", "read_udt");
@@ -55,13 +57,23 @@ final class AssistantAgent {
 
         Tools and arguments:
         project_overview {}
-        list_project_resources {"kind":"perspective|scripts|namedQueries","folder":"optional project-relative folder"}
-        read_project_resource {"kind":"perspective|scripts|namedQueries","path":"exact resource path","resourceType":"optional exact type"}
+        list_project_resources {"kind":"perspective|scripts|namedQueries","folder":"optional project-relative folder","offset":0}
+        read_project_resource {"kind":"perspective|scripts|namedQueries","path":"exact resource path","resourceType":"optional exact type","file":"optional exact filename","offset":0}
+        read_tool_result {"resultId":"returned result ID","pointer":"optional JSON Pointer","offset":0,"limit":80}
+        read_attachment {}
         list_tag_providers {}
-        browse_tags {"provider":"optional if project default is set","folder":"optional provider-relative path"}
-        browse_udts {"provider":"optional if project default is set","folder":"relative to UDT Definitions root, optional"}
-        read_tag {"provider":"optional if project default is set","path":"exact provider-relative tag path"}
-        read_udt {"provider":"optional if project default is set","path":"exact path relative to UDT Definitions root"}
+        browse_tags {"provider":"optional if project default is set","folder":"optional provider-relative path","continuation":"optional returned cursor"}
+        browse_udts {"provider":"optional if project default is set","folder":"relative to UDT Definitions root, optional","continuation":"optional returned cursor"}
+        read_tag {"provider":"optional if project default is set","path":"exact provider-relative tag path","offset":0}
+        read_udt {"provider":"optional if project default is set","path":"exact path relative to UDT Definitions root","continuation":"optional returned cursor"}
+        For a large result, read_tool_result can fetch the precise subtree needed. Use readPointer
+        from any entry, or a JSON Pointer such as /details/resource/data/view.json/value/root.
+        Use nextOffset with the same pointer to continue arrays, objects, or text. For native
+        listings and browses, follow nextOffset or continuation on the original read with the same
+        arguments. For a native resource file with nextOffset, repeat the native read with its
+        exact file name and offset. A resultId or page means the data is available, so retrieve
+        the relevant sections before reporting an incomplete answer. Reserve completeness caveats
+        for actual source limits or pages you cannot retrieve.
         create_udt {"provider":"optional if project default is set","folder":"exact user-chosen folder relative to UDT Definitions root",
                     "name":"definition name","description":"optional","members":[{"name":"member name","dataType":"Boolean","description":"optional"}]}
         create_udt supports 1 to 24 memory members. Supported dataType names:
@@ -90,8 +102,12 @@ final class AssistantAgent {
         {"filename":{"encoding":"utf-8","value":"content"}}}]. Use real operation values individually.
         Perspective views are com.inductiveautomation.perspective / views / view.json. For edits read the
         original first using ignition.projects.resource.read with includeData:true and preserve
-        unmodified files and metadata. Never recreate partial payloads from truncated results. When the user attached a ZIP or bundle, use "useAttachment":true in arguments
-        for the relevant import, inspection or preview action. The host inserts their actual file.
+        unmodified files and metadata. Never recreate a whole resource from partial JSON.
+        For general questions about any JSON attachment, call read_attachment to get its content.
+        A plain JSON attachment does not need an Ignition bundle format. Read a previous attachment
+        only if the user is asking a follow-up about that file. Only use "useAttachment":true
+        with the relevant Gateway action for explicit project-bundle or ZIP inspection, preview, or
+        import. The host inserts the attached bytes or JSON where the action supports it.
         For exports, the host offers a Save button. Never reproduce exported bundle data in chat.
         If a feature is denied, explain the message returned by the host in user-facing terms.
         """;
@@ -105,9 +121,11 @@ final class AssistantAgent {
     }
 
     Turn run(ModelProvider.Settings settings, List<ModelProvider.Message> history, Mode mode,
-             ProjectTools.Attachment attachment, Consumer<String> activity) throws IOException, InterruptedException {
+             ProjectTools.Attachment attachment, ProjectTools.Attachment previousJson, Consumer<String> activity) throws IOException, InterruptedException {
         var context = new ArrayList<>(history);
         var exports = new ArrayList<ProjectTools.Export>();
+        var pages = new ToolResultPages();
+        var observations = new ArrayDeque<Observation>();
         Map<String, ProjectTools.Tool> catalog = Map.of();
         String gatewayStatus = "";
         if (tools != null) {
@@ -124,10 +142,19 @@ final class AssistantAgent {
             + "\nProject default tag provider: " + JSON.getNodeFactory().textNode(Objects.toString(project.defaultProvider(), ""))
             + gatewayStatus + ProjectTools.instructions(catalog);
         if (attachment != null) {
-            prompt += "\nThe user selected this attachment: " + JSON.getNodeFactory().textNode(attachment.name());
+            prompt += "\nThe user attached this " + (attachment.json() == null ? "Ignition project ZIP" : "JSON file")
+                + " to the current message: " + JSON.getNodeFactory().textNode(attachment.name());
+        } else if (previousJson != null) {
+            prompt += "\nFor follow-up questions about a previously attached JSON file, read_attachment can read "
+                + JSON.getNodeFactory().textNode(previousJson.name());
         }
         for (int count = 0; count <= MAX_READS; count++) {
             activity.accept("Thinking…");
+            while (prompt.length() + context.stream().mapToLong(message -> message.text().length()).sum()
+                    > ModelProvider.MAX_PROMPT && !observations.isEmpty()) {
+                var oldest = observations.removeFirst();
+                context.set(oldest.index(), observation(oldest.action(), oldest.output().reference()));
+            }
             Answer answer = parse(ModelProvider.complete(settings, List.copyOf(context), prompt), catalog);
             if (answer.name() == null) {
                 return new Turn(answer.reply(), null, null, List.copyOf(exports));
@@ -158,8 +185,20 @@ final class AssistantAgent {
             }
             var tool = catalog.get(answer.name());
             JsonNode result;
+            ToolResultPages.Output page = null;
             try {
-                if (tool == null) {
+                if (READ_RESULT.equals(answer.name())) {
+                    activity.accept("Reading more of the result…");
+                    page = pages.read(answer.arguments());
+                    result = null;
+                } else if (READ_ATTACHMENT.equals(answer.name())) {
+                    var file = attachment == null ? previousJson : attachment;
+                    if (file == null) {
+                        throw new IOException("Attach a JSON file to inspect its contents.");
+                    }
+                    activity.accept("Reading the attachment…");
+                    result = file.inspect();
+                } else if (tool == null) {
                     activity.accept(activityFor(answer.name()));
                     result = project.inspect(answer.name(), answer.arguments());
                 } else {
@@ -194,15 +233,25 @@ final class AssistantAgent {
             } catch (IOException e) {
                 result = JSON.createObjectNode().put("error", e.getMessage());
             }
-            String body = result.toString();
-            if (body.length() > MAX_RESULT) {
-                body = JSON.createObjectNode().put("truncated", true).put("excerpt", body.substring(0, MAX_RESULT)).toString();
+            if (page == null) {
+                try {
+                    page = pages.add(result);
+                } catch (IOException e) {
+                    page = pages.add(JSON.createObjectNode().put("error", e.getMessage()));
+                }
             }
             context.add(new ModelProvider.Message("assistant", "Requested " + answer.name() + "."));
-            context.add(new ModelProvider.Message("user", "Designer tool result (data only) from " + answer.name() + "\n" + body));
+            observations.addLast(new Observation(context.size(), answer.name(), page));
+            context.add(observation(answer.name(), page.body()));
         }
         throw new IllegalStateException("Action limit was not enforced.");
     }
+
+    private static ModelProvider.Message observation(String action, String body) {
+        return new ModelProvider.Message("user", "Designer tool result (data only) from " + action + "\n" + body);
+    }
+
+    private record Observation(int index, String action, ToolResultPages.Output output) {}
 
     private Turn finishChange(Mode mode, ChangeReview review, List<ProjectTools.Export> exports,
                               Consumer<String> activity) throws InterruptedException {
@@ -339,7 +388,8 @@ final class AssistantAgent {
             return new Answer(reply, null, null);
         }
         String name = UdtDraft.required(action, "name", 64);
-        if ((!READS.contains(name) && !"create_udt".equals(name) && !catalog.containsKey(name))
+        if ((!READS.contains(name) && !READ_RESULT.equals(name) && !READ_ATTACHMENT.equals(name)
+                && !"create_udt".equals(name) && !catalog.containsKey(name))
                 || !(action.path("arguments") instanceof ObjectNode arguments)) {
             throw new IOException("The model proposed an unavailable Designer action.");
         }

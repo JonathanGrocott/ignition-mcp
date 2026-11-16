@@ -35,7 +35,7 @@ import static com.jg.ignition.assistant.AssistantJson.JSON;
 
 final class NativeAgentProject implements AgentProject {
     private static final int LIST_LIMIT = 100;
-    private static final int TEXT_LIMIT = 6_000;
+    private static final int TEXT_LIMIT = 1_048_576;
     private static final int SECONDS = 15;
     private static final Set<String> SCRIPT_TYPES = Set.of(
         "script-python", "script-app-library", "startup", "shutdown", "update", "timer", "message",
@@ -68,10 +68,10 @@ final class NativeAgentProject implements AgentProject {
             case "list_project_resources" -> listResources(args);
             case "read_project_resource" -> readResource(args);
             case "list_tag_providers" -> providers();
-            case "browse_tags" -> browse(tagPath(args, "folder", false, true), false);
-            case "browse_udts" -> browse(tagPath(args, "folder", true, true), true);
-            case "read_tag" -> readTag(tagPath(args, "path", false, false));
-            case "read_udt" -> readUdt(tagPath(args, "path", true, false));
+            case "browse_tags" -> browse(tagPath(args, "folder", false, true), false, continuation(args));
+            case "browse_udts" -> browse(tagPath(args, "folder", true, true), true, continuation(args));
+            case "read_tag" -> readTag(tagPath(args, "path", false, false), ToolResultPages.offset(args, "offset", 0));
+            case "read_udt" -> readUdt(tagPath(args, "path", true, false), continuation(args));
             default -> throw new IOException("Unknown inspection action.");
         };
     }
@@ -93,14 +93,18 @@ final class NativeAgentProject implements AgentProject {
     private ObjectNode listResources(ObjectNode args) throws IOException, InterruptedException {
         String kind = kind(args);
         String folder = UdtDraft.optional(args, "folder", 350);
+        int offset = ToolResultPages.offset(args, "offset", 0);
         var resources = onEdt(() -> context.getProject().getResources().stream()
             .filter(r -> matches(r, kind) && (folder.isEmpty() || path(r).startsWith(folder + "/")))
-            .sorted(Comparator.comparing(NativeAgentProject::path))
-            .limit(LIST_LIMIT + 1L)
+            .sorted(Comparator.comparing(NativeAgentProject::path).thenComparing(r -> r.getResourceType().typeId()))
+            .skip(offset).limit(LIST_LIMIT + 1L)
             .map(r -> resourceSummary(r, context.getProject().isChanged(r.getResourcePath())))
             .toList());
         var out = JSON.createObjectNode().put("project", name()).put("kind", kind).put("folder", folder)
-            .put("truncated", resources.size() > LIST_LIMIT);
+            .put("offset", offset);
+        if (resources.size() > LIST_LIMIT) {
+            out.put("nextOffset", (long) offset + LIST_LIMIT);
+        }
         var rows = out.putArray("resources");
         resources.stream().limit(LIST_LIMIT).forEach(rows::add);
         return out;
@@ -121,36 +125,83 @@ final class NativeAgentProject implements AgentProject {
         Resource resource = matches.get(0);
         var out = resourceSummary(resource, onEdt(() -> context.getProject().isChanged(resource.getResourcePath())));
         var files = out.putArray("files");
+        String selectedFile = UdtDraft.optional(args, "file", 255);
+        int offset = ToolResultPages.offset(args, "offset", 0);
+        if (!selectedFile.isEmpty() && !resource.getDataKeys().contains(selectedFile)) {
+            throw new IOException("There is no file named " + selectedFile + " on this resource.");
+        }
+        if (offset > 0 && selectedFile.isEmpty()) {
+            throw new IOException("Supply the exact file name to continue reading at an offset.");
+        }
         int remaining = TEXT_LIMIT;
-        for (String key : resource.getDataKeys()) {
-            if (files.size() >= 12) {
-                out.put("fileListTruncated", true);
-                break;
+        for (String key : resource.getDataKeys().stream().sorted().toList()) {
+            if (!selectedFile.isEmpty() && !key.equals(selectedFile)) {
+                continue;
             }
             ObjectNode file = files.addObject().put("name", key);
             var extension = key.toLowerCase(Locale.ROOT);
-            if (remaining <= 0 || !(extension.endsWith(".py") || extension.endsWith(".json") || extension.endsWith(".txt"))) {
+            if (!(extension.endsWith(".py") || extension.endsWith(".json") || extension.endsWith(".txt")
+                    || extension.endsWith(".sql"))) {
+                file.put("binaryOrUnsupported", true);
+                continue;
+            }
+            var bytes = resource.getData(key);
+            if (bytes.isEmpty()) {
+                continue;
+            }
+            file.put("bytes", bytes.get().length());
+            if (remaining == 0) {
+                file.put("nextOffset", 0);
                 continue;
             }
             var reader = resource.getDataReader(key);
-            if (reader.isPresent()) {
-                try (var input = reader.orElseThrow()) {
-                    char[] data = new char[remaining + 1];
-                    int length = 0;
-                    while (length < data.length) {
-                        int read = input.read(data, length, data.length - length);
-                        if (read <= 0) {
-                            break;
-                        }
-                        length += read;
-                    }
-                    int included = Math.min(length, remaining);
-                    file.put("text", new String(data, 0, included)).put("truncated", length > remaining);
-                    remaining -= included;
+            if (reader.isEmpty()) {
+                file.put("binaryOrUnsupported", true);
+                continue;
+            }
+            try (var input = reader.get()) {
+                if (input.skip(offset) != offset) {
+                    throw new IOException("The requested offset is beyond the end of " + key + ".");
                 }
+                char[] data = new char[Math.min(remaining + 1, bytes.get().length())];
+                int length = 0;
+                while (length < data.length) {
+                    int read = input.read(data, length, data.length - length);
+                    if (read <= 0) {
+                        break;
+                    }
+                    length += read;
+                }
+                int included = Math.min(length, remaining);
+                if (included < length && Character.isLowSurrogate(data[included])) {
+                    included--;
+                }
+                String text = new String(data, 0, included);
+                if (length > included) {
+                    file.put("nextOffset", (long) offset + included).put("offset", offset);
+                }
+                if (offset == 0 && included == length && extension.endsWith(".json")) {
+                    putJsonOrText(file, text);
+                } else {
+                    file.put("text", text);
+                }
+                remaining -= included;
             }
         }
         return out;
+    }
+
+    private static void putJsonOrText(ObjectNode file, String text) {
+        try {
+            JsonNode json = JSON.readTree(text);
+            if (json != null && !json.isMissingNode()) {
+                file.set("json", json);
+                return;
+            }
+        } catch (IOException ignored) {
+            // Preserve the file as text when its contents are not parseable JSON.
+        }
+        file.put("text", text);
     }
 
     private static String kind(ObjectNode args) throws IOException {
@@ -211,14 +262,26 @@ final class NativeAgentProject implements AgentProject {
         return TagPathParser.parse("[" + provider + "]" + path);
     }
 
-    private ObjectNode browse(TagPath path, boolean includeDefinitions) throws IOException, InterruptedException {
-        var results = await(context.getTagManager().browseAsync(path,
-            new BrowseFilter().setMaxResults(LIST_LIMIT).setAvoidCache(true)), "Tag browse");
+    private static String continuation(ObjectNode args) throws IOException {
+        String cursor = UdtDraft.optional(args, "continuation", 8_192);
+        return cursor.isEmpty() ? null : cursor;
+    }
+
+    private ObjectNode browse(TagPath path, boolean includeDefinitions, String cursor) throws IOException, InterruptedException {
+        var filter = new BrowseFilter().setMaxResults(LIST_LIMIT).setAvoidCache(true);
+        if (cursor != null) {
+            filter.setContinuationPoint(cursor);
+        }
+        var results = await(context.getTagManager().browseAsync(path, filter), "Tag browse");
         if (!results.getResultQuality().isGood()) {
             throw new IOException("Designer could not browse " + path.toStringFull() + " (" + results.getResultQuality().getName() + ").");
         }
-        var out = JSON.createObjectNode().put("path", path.toStringFull())
-            .put("truncated", results.getContinuationPoint() != null || results.getTotalAvailableSize() > LIST_LIMIT);
+        var out = JSON.createObjectNode().put("path", path.toStringFull());
+        if (results.getContinuationPoint() != null) {
+            out.put("continuation", results.getContinuationPoint());
+        } else if (cursor == null && results.getTotalAvailableSize() > results.getResults().size()) {
+            out.put("truncated", true);
+        }
         var rows = out.putArray("items");
         results.getResults().stream().filter(node -> includeDefinitions || !"_types_".equals(node.getName()))
             .limit(LIST_LIMIT).forEach(node -> {
@@ -231,7 +294,7 @@ final class NativeAgentProject implements AgentProject {
         return out;
     }
 
-    private ObjectNode readTag(TagPath path) throws IOException, InterruptedException {
+    private ObjectNode readTag(TagPath path, int offset) throws IOException, InterruptedException {
         var values = await(context.getTagManager().readAsync(List.of(path)), "Tag read");
         if (values.isEmpty()) {
             throw new IOException("Designer returned no value for " + path.toStringFull() + ".");
@@ -245,19 +308,29 @@ final class NativeAgentProject implements AgentProject {
         if (raw == null || raw instanceof Number || raw instanceof Boolean) {
             out.set("value", JSON.valueToTree(raw));
         } else if (raw instanceof String text) {
-            out.put("value", text.substring(0, Math.min(1000, text.length()))).put("truncated", text.length() > 1000);
+            if (offset > text.length() || offset < text.length() && Character.isLowSurrogate(text.charAt(offset))) {
+                throw new IOException("Use the returned nextOffset to continue the tag value.");
+            }
+            int end = (int) Math.min(text.length(), (long) offset + TEXT_LIMIT);
+            if (end < text.length() && Character.isLowSurrogate(text.charAt(end))) {
+                end--;
+            }
+            out.put("value", text.substring(offset, end));
+            if (end < text.length()) {
+                out.put("offset", offset).put("nextOffset", end);
+            }
         } else {
             out.put("valueType", raw.getClass().getSimpleName());
         }
         return out;
     }
 
-    private ObjectNode readUdt(TagPath path) throws IOException, InterruptedException {
+    private ObjectNode readUdt(TagPath path, String cursor) throws IOException, InterruptedException {
         var definition = lookup(path, false);
         if (definition == null || definition.getType() != TagObjectType.UdtType) {
             throw new IOException("No UDT definition found at " + path.toStringFull() + ".");
         }
-        return browse(path, true).put("description", definition.get(WellKnownTagProps.Documentation));
+        return browse(path, true, cursor).put("description", definition.get(WellKnownTagProps.Documentation));
     }
 
     @Override public void checkDestination(UdtDraft draft) throws IOException, InterruptedException {
@@ -266,7 +339,7 @@ final class NativeAgentProject implements AgentProject {
         }
         TagPath parent = TagPathParser.parse(draft.parentPath());
         if (draft.folder().isEmpty()) {
-            browse(parent, true);
+            browse(parent, true, null);
         } else {
             var folder = lookup(parent, false);
             if (folder == null || folder.getType() != TagObjectType.Folder) {
