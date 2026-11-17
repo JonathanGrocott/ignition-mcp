@@ -66,3 +66,15 @@ jobs:
           designer-assistant/build/ignition-designer-assistant.modl
           designer-assistant/build/ignition-designer-assistant.modl.sha256
         retention-days: 30
+
+  windows-cli:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    - name: Verify Windows executable discovery and launch
+      run: .\gradlew.bat :designer-assistant:test --tests "*CliExecutableTest" --no-daemon

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.condition.OS;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -169,6 +170,74 @@ class ModelProviderTest {
         var error = assertThrows(IOException.class, () -> ModelProvider.complete(config, HISTORY, SYSTEM));
         assertTrue(error.getMessage().contains("Claude Code CLI"));
         assertFalse(error.getMessage().contains("private error details"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void kiroUsesToolFreeTemporaryAgentAndCleansItsSession(@TempDir Path directory) throws Exception {
+        Path executable = directory.resolve("kiro");
+        Files.writeString(executable, """
+            #!/bin/sh
+            case "$*" in
+              'chat --v2 --delete-session 8a01148a-6567-4c2f-9436-2f275faae010 --session-source v2')
+                printf 'deleted' > "$(dirname "$0")/receipt"
+                exit 0 ;;
+              'chat --v2 --no-interactive --output-format stream-json --agent ignition-designer --trust-tools= --model test') ;;
+              *) exit 10 ;;
+            esac
+            agent=.kiro/agents/ignition-designer.json
+            grep -F '"tools":[]' "$agent" >/dev/null && grep -F '"includeMcpJson":false' "$agent" >/dev/null || exit 11
+            prompt="$(cat)"
+            case "$prompt" in *'Example reply'*'Next request'*) ;; *) exit 12 ;; esac
+            printf '%s\\n' '{"type":"runStarted","data":{"engine":"v2"}}' \\
+                '{"type":"runFinished","data":{"status":"success","sessionId":"8a01148a-6567-4c2f-9436-2f275faae010","finalText":"answer"}}'
+            """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        var config = new ModelProvider.Settings(ModelProvider.Kind.KIRO_CLI, "", "test", "", "",
+            executable.toString(), "");
+        assertEquals("answer", ModelProvider.complete(config, HISTORY, SYSTEM));
+        assertEquals("deleted", Files.readString(directory.resolve("receipt")));
+    }
+
+    @Test
+    void presetsUseChatCompletionsWithTheirOwnModelAndCredential() throws Exception {
+        for (var kind : List.of(ModelProvider.Kind.GEMINI, ModelProvider.Kind.OLLAMA, ModelProvider.Kind.BEDROCK)) {
+            assertTrue(kind.defaultEndpoint.endsWith("/chat/completions"));
+            try (var server = new MockEndpoint("{\"choices\":[{\"message\":{\"content\":\"answer\"}}]}", "Authorization")) {
+                String credential = kind == ModelProvider.Kind.OLLAMA ? "" : "test-secret";
+                var settings = new ModelProvider.Settings(kind, server.url(), "selected-model", credential, "", "", "");
+                assertEquals("answer", ModelProvider.complete(settings, HISTORY, SYSTEM));
+                assertEquals(credential.isEmpty() ? null : "Bearer test-secret", server.credential.get());
+                assertEquals("selected-model", server.data.get().path("model").asText());
+            }
+        }
+    }
+
+    @Test
+    void azureEntraRestrictsBearerTokensToKnownResourceEndpoints() throws Exception {
+        var api = "/openai/v1/chat/completions";
+        assertEquals("https://cognitiveservices.azure.com/.default",
+            ModelProvider.azureTokenScope(URI.create("https://plant.openai.azure.com" + api)));
+        assertEquals("https://ai.azure.com/.default",
+            ModelProvider.azureTokenScope(URI.create("https://plant.services.ai.azure.com" + api)));
+        for (String endpoint : List.of("https://your-resource.openai.azure.com" + api,
+                "https://plant.openai.azure.com.example.com" + api, "https://plant.openai.azure.com:444" + api)) {
+            assertThrows(IOException.class, () -> ModelProvider.azureTokenScope(URI.create(endpoint)));
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void azureCliRequestsTokenFromTheExistingLogin(@TempDir Path directory) throws Exception {
+        Path executable = directory.resolve("az");
+        Files.writeString(executable, """
+            #!/bin/sh
+            test "$*" = 'account get-access-token --scope https://cognitiveservices.azure.com/.default --query accessToken --output tsv --only-show-errors' || exit 10
+            printf '%s\\n' 'fixture.header.signature'
+            """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        assertEquals("fixture.header.signature", ModelProvider.azureToken(executable.toString(),
+            "https://cognitiveservices.azure.com/.default"));
     }
 
     private static final class MockEndpoint implements AutoCloseable {

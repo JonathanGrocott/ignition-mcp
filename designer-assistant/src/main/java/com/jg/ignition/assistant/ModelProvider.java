@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -24,11 +25,32 @@ import static com.jg.ignition.assistant.AssistantJson.JSON;
 /** Returns model text to the caller. None of these providers receives an Ignition tool or credential. */
 final class ModelProvider {
     enum Kind {
-        CODEX_CLI, CLAUDE_CLI, OPENAI_COMPATIBLE, ANTHROPIC;
+        CODEX_CLI("Codex CLI", "codex", ""),
+        CLAUDE_CLI("Claude Code CLI", "claude", ""),
+        KIRO_CLI("Kiro CLI", "kiro-cli", ""),
+        OPENAI_COMPATIBLE("OpenAI / compatible API", "", "https://api.openai.com/v1/chat/completions"),
+        ANTHROPIC("Anthropic API", "", "https://api.anthropic.com/v1/messages"),
+        AZURE_OPENAI("Azure OpenAI / Foundry (API key)", "", azureEndpoint()),
+        AZURE_ENTRA("Azure OpenAI / Foundry (Entra ID)", "az", azureEndpoint()),
+        GEMINI("Google Gemini", "", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"),
+        OLLAMA("Ollama (local)", "", "http://127.0.0.1:11434/v1/chat/completions"),
+        BEDROCK("Amazon Bedrock (API key)", "", "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions");
 
-        boolean isCli() { return this == CODEX_CLI || this == CLAUDE_CLI; }
+        final String label;
+        final String command;
+        final String defaultEndpoint;
 
-        String cliName() { return this == CLAUDE_CLI ? "Claude Code CLI" : "Codex CLI"; }
+        Kind(String label, String command, String defaultEndpoint) {
+            this.label = label;
+            this.command = command;
+            this.defaultEndpoint = defaultEndpoint;
+        }
+
+        private static String azureEndpoint() { return "https://YOUR-RESOURCE.openai.azure.com/openai/v1/chat/completions"; }
+
+        boolean isCli() { return defaultEndpoint.isEmpty(); }
+        boolean usesExecutable() { return !command.isEmpty(); }
+        String cliName() { return this == AZURE_ENTRA ? "Azure CLI" : label; }
     }
 
     record Settings(Kind kind, String endpoint, String model, String credential, String credentialHeader,
@@ -38,11 +60,10 @@ final class ModelProvider {
         public String toString() { return "ModelProvider.Settings[" + kind + "]"; }
 
         String displayName() {
-            return switch (kind) {
-                case CODEX_CLI, CLAUDE_CLI -> model.isBlank() ? kind.cliName() : kind.cliName() + " · " + model;
-                case OPENAI_COMPATIBLE -> model.isBlank() ? "OpenAI-compatible" : model;
-                case ANTHROPIC -> model.isBlank() ? "Anthropic" : model;
-            };
+            if (model.isBlank()) {
+                return kind.label;
+            }
+            return kind.isCli() ? kind.label + " · " + model : model;
         }
 
         String connectionDescription() {
@@ -73,7 +94,8 @@ final class ModelProvider {
     private static final int MAX_CLI_OUTPUT = 1_048_576;
     static final int MAX_PROMPT = 131_072;
     private static final int MAX_REPLY = 32_768;
-    private static final Pattern ENV_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Pattern ENV_CREDENTIAL = Pattern.compile("env:([A-Za-z_][A-Za-z0-9_]*)");
+    private static final Pattern KIRO_SESSION_ID = Pattern.compile("(?i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}");
     private static final Pattern MCP_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,128}");
     private static final Pattern PROFILE_NAME = Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}");
     private static final List<String> CLI_RESTRICTIONS = List.of(
@@ -106,7 +128,8 @@ final class ModelProvider {
         String response = switch (settings.kind()) {
             case CODEX_CLI -> codex(settings, history, system);
             case CLAUDE_CLI -> claude(settings, history, system);
-            case OPENAI_COMPATIBLE, ANTHROPIC -> http(settings, history, system);
+            case KIRO_CLI -> kiro(settings, history, system);
+            default -> http(settings, history, system);
         };
         if (response.isBlank() || response.length() > MAX_REPLY) {
             throw new IOException("The model returned an empty or oversized reply.");
@@ -130,11 +153,12 @@ final class ModelProvider {
         for (Message message : history) {
             messages.addObject().put("role", message.role()).put("content", message.text());
         }
-        HttpRequest.Builder request = HttpJson.post(HttpJson.endpoint(settings.endpoint()), data, HTTP_TIMEOUT_SECONDS);
+        URI endpoint = HttpJson.endpoint(settings.endpoint());
+        HttpRequest.Builder request = HttpJson.post(endpoint, data, HTTP_TIMEOUT_SECONDS);
         if (anthropic) {
             request.header("anthropic-version", "2023-06-01");
         }
-        authenticate(request, settings, anthropic);
+        authenticate(request, settings, endpoint);
         HttpJson.Response response = HttpJson.send(request.build(), HTTP_TIMEOUT_SECONDS);
         if (response.status() < 200 || response.status() >= 300) {
             throw new IOException("Model provider returned HTTP " + response.status()
@@ -156,24 +180,39 @@ final class ModelProvider {
         return resultText.toString();
     }
 
-    private static void authenticate(HttpRequest.Builder request, Settings settings, boolean anthropic)
-        throws IOException {
+    static boolean environmentReference(String value) {
+        return ENV_CREDENTIAL.matcher(value).matches();
+    }
+
+    private static void authenticate(HttpRequest.Builder request, Settings settings, URI endpoint)
+        throws IOException, InterruptedException {
+        if (settings.kind() == Kind.AZURE_ENTRA) {
+            request.header("Authorization", "Bearer " + azureToken(settings.cliExecutable(), azureTokenScope(endpoint)));
+            return;
+        }
+        if (settings.kind() == Kind.AZURE_OPENAI) {
+            azureTokenScope(endpoint);
+        }
         if (settings.credential().isBlank()) {
             return;
         }
         String key = settings.credential().strip();
         if (key.startsWith("env:")) {
-            String variable = key.substring(4);
-            if (!ENV_NAME.matcher(variable).matches()) {
+            var reference = ENV_CREDENTIAL.matcher(key);
+            if (!reference.matches()) {
                 throw new IOException("Use env:VARIABLE_NAME for an environment credential.");
             }
+            String variable = reference.group(1);
             key = System.getenv(variable);
             if (key == null || key.isBlank()) {
                 throw new IOException("Credential environment variable " + variable + " is unavailable to Designer.");
             }
         }
-        String header = settings.credentialHeader().isBlank() ? (anthropic ? "x-api-key" : "Authorization")
-            : settings.credentialHeader().strip();
+        String header = settings.credentialHeader().isBlank() ? switch (settings.kind()) {
+            case ANTHROPIC -> "x-api-key";
+            case AZURE_OPENAI -> "api-key";
+            default -> "Authorization";
+        } : settings.credentialHeader().strip();
         if ("authorization".equalsIgnoreCase(header) && !key.strip().contains(" ")) {
             key = "Bearer " + key;
         }
@@ -185,9 +224,50 @@ final class ModelProvider {
         }
     }
 
+    static String azureTokenScope(URI endpoint) throws IOException {
+        String host = Objects.toString(endpoint.getHost(), "").toLowerCase(Locale.ROOT);
+        if ("https".equalsIgnoreCase(endpoint.getScheme()) && "/openai/v1/chat/completions".equals(endpoint.getPath())
+                && !host.startsWith("your-resource.") && (endpoint.getPort() == -1 || endpoint.getPort() == 443)) {
+            if (host.endsWith(".openai.azure.com")) {
+                return "https://cognitiveservices.azure.com/.default";
+            }
+            if (host.endsWith(".services.ai.azure.com")) {
+                return "https://ai.azure.com/.default";
+            }
+        }
+        throw new IOException("Enter your Azure OpenAI or Foundry HTTPS resource URL ending in /openai/v1/chat/completions.");
+    }
+
+    static String azureToken(String configured, String scope) throws IOException, InterruptedException {
+        String az = CliExecutable.resolve(configured, Kind.AZURE_ENTRA.command);
+        var command = new ArrayList<String>();
+        if (CliExecutable.windows() && az.toLowerCase(Locale.ROOT).endsWith(".cmd")) {
+            // Microsoft's Windows distribution invokes its bundled Python through az.cmd.
+            var python = Path.of(az).toAbsolutePath().resolveSibling("../python.exe").normalize();
+            if (!Files.isRegularFile(python)) {
+                throw new IOException("Select az.cmd from the installed Microsoft Azure CLI.");
+            }
+            command.addAll(List.of(python.toString(), "-IBm", "azure.cli"));
+        } else {
+            command.add(az);
+        }
+        command.addAll(List.of("account", "get-access-token", "--scope", scope, "--query", "accessToken",
+            "--output", "tsv", "--only-show-errors"));
+        Path workspace = Files.createTempDirectory("ignition-assistant-azure-");
+        try {
+            String result = run(Kind.AZURE_ENTRA, command, workspace, "", 25, "get an Entra access token").strip();
+            if (!result.matches("[A-Za-z0-9._~+/=-]{1,32768}")) {
+                throw new IOException("Azure CLI did not return an access token. Run az login in a terminal.");
+            }
+            return result;
+        } finally {
+            deleteWorkspace(workspace);
+        }
+    }
+
     private static String codex(Settings settings, List<Message> history, String system)
         throws IOException, InterruptedException {
-        String executable = resolveCli(settings.cliExecutable(), "codex");
+        String executable = CliExecutable.resolve(settings.cliExecutable(), Kind.CODEX_CLI.command);
         String profile = settings.codexProfile().strip();
         if (!profile.isEmpty() && !PROFILE_NAME.matcher(profile).matches()) {
             throw new IOException("Enter a Codex profile name, not a path.");
@@ -242,7 +322,7 @@ final class ModelProvider {
         Path workspace = Files.createTempDirectory("ignition-assistant-claude-");
         try {
             // Claude authenticates locally. Designer retains all project reads, proposals, and writes.
-            var command = new ArrayList<>(List.of(resolveCli(settings.cliExecutable(), "claude"),
+            var command = new ArrayList<>(List.of(CliExecutable.resolve(settings.cliExecutable(), Kind.CLAUDE_CLI.command),
                 "--safe-mode", "--print", "--output-format", "json", "--no-session-persistence",
                 "--tools", "", "--strict-mcp-config", "--disallowed-tools", "*",
                 "--permission-mode", "dontAsk", "--no-chrome", "--max-turns", "1",
@@ -280,21 +360,76 @@ final class ModelProvider {
             """ + input;
     }
 
-    private static String resolveCli(String executable, String command) {
-        if (!executable.isBlank()) {
-            return executable.strip();
-        }
-        Path home = Path.of(System.getProperty("user.home"));
-        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
-        String binary = windows ? command + ".exe" : command;
-        var candidates = List.of(home.resolve(".local/bin").resolve(binary), home.resolve("." + command + "/bin").resolve(binary),
-            Path.of("/opt/homebrew/bin").resolve(binary), Path.of("/usr/local/bin").resolve(binary));
-        for (Path candidate : candidates) {
-            if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) {
-                return candidate.toString();
+    private static String kiro(Settings settings, List<Message> history, String system)
+        throws IOException, InterruptedException {
+        Path workspace = Files.createTempDirectory("ignition-assistant-kiro-");
+        var base = List.of(CliExecutable.resolve(settings.cliExecutable(), Kind.KIRO_CLI.command), "chat", "--v2");
+        String sessionId = "";
+        try {
+            var agents = Files.createDirectories(workspace.resolve(".kiro/agents"));
+            Files.writeString(agents.resolve("ignition-designer.json"), """
+                {"name":"ignition-designer","description":"Ignition Designer Assistant",
+                 "prompt":"Answer as the text model for Ignition Designer Assistant.",
+                 "tools":[],"allowedTools":[],"mcpServers":{},"includeMcpJson":false,"resources":[],"hooks":{}}
+                """);
+            var command = new ArrayList<>(base);
+            command.addAll(List.of("--no-interactive", "--output-format", "stream-json",
+                "--agent", "ignition-designer", "--trust-tools="));
+            if (!settings.model().isBlank()) {
+                command.addAll(List.of("--model", settings.model().strip()));
+            }
+            String events = run(Kind.KIRO_CLI, command, workspace, cliPrompt(history, system), CLI_TIMEOUT_SECONDS, "run");
+            JsonNode result = null;
+            try {
+                for (String line : events.lines().filter(line -> !line.isBlank()).toList()) {
+                    JsonNode event = JSON.readTree(line);
+                    if ("runFinished".equals(event.path("type").asText())) {
+                        result = event.path("data");
+                        sessionId = result.path("sessionId").asText();
+                    }
+                }
+            } catch (IOException e) {
+                throw new IOException("Kiro CLI returned an invalid response stream. Check the installed version.");
+            }
+            if (result == null || !"success".equals(result.path("status").asText())
+                    || result.path("finalTextTruncated").asBoolean(false)) {
+                throw new IOException("Kiro CLI did not complete the reply. Check kiro-cli whoami and try again.");
+            }
+            return result.path("finalText").asText("");
+        } finally {
+            try {
+                deleteKiroSession(base, workspace, sessionId);
+            } finally {
+                deleteWorkspace(workspace);
             }
         }
-        return binary;
+    }
+
+    private static void deleteKiroSession(List<String> base, Path workspace, String sessionId)
+        throws InterruptedException {
+        try {
+            // Use only the session from this run or a scoped listing of the private workspace.
+            if (!KIRO_SESSION_ID.matcher(sessionId).matches()) {
+                var list = new ArrayList<>(base);
+                list.addAll(List.of("--list-sessions", "--format", "json"));
+                JsonNode workspaces = JSON.readTree(run(Kind.KIRO_CLI, list, workspace, "", 5, "list temporary sessions"));
+                String path = workspace.toRealPath().toString();
+                if (workspaces != null && workspaces.isArray() && workspaces.size() == 1
+                        && path.equals(workspaces.get(0).path("cwd").asText())) {
+                    var sessions = workspaces.get(0).path("sessions");
+                    if (sessions.isArray() && sessions.size() == 1) {
+                        sessionId = sessions.get(0).path("sessionId").asText();
+                    }
+                }
+            }
+            if (KIRO_SESSION_ID.matcher(sessionId).matches()) {
+                var delete = new ArrayList<>(base);
+                delete.addAll(List.of("--delete-session", sessionId, "--session-source", "v2"));
+                run(Kind.KIRO_CLI, delete, workspace, "", 5, "remove the temporary session");
+            }
+        } catch (IOException ignored) {
+            // Kiro may retain a session if the CLI cannot complete its cleanup command.
+        }
     }
 
     private static void disableMcp(List<String> base, Path workspace) throws IOException, InterruptedException {
@@ -334,6 +469,9 @@ final class ModelProvider {
         ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile())
             .redirectError(ProcessBuilder.Redirect.DISCARD);
         builder.environment().keySet().removeIf(ModelProvider::ignitionSecret);
+        if (kind == Kind.KIRO_CLI) {
+            builder.environment().put("KIRO_LOG_NO_COLOR", "1");
+        }
         Process process;
         try {
             process = builder.start();
@@ -366,9 +504,13 @@ final class ModelProvider {
             long remaining = Math.max(1, deadline - System.nanoTime());
             byte[] data = output.get(remaining, TimeUnit.NANOSECONDS);
             if (process.exitValue() != 0) {
-                throw new IOException(cli + " could not " + operation + (kind == Kind.CLAUDE_CLI
-                    ? ". Check its sign-in and model in a terminal and use a version with --safe-mode."
-                    : ". Check CLI login, profile, and version in a terminal."));
+                String hint = switch (kind) {
+                    case CLAUDE_CLI -> "Check its sign-in and model in a terminal and use a version with --safe-mode.";
+                    case KIRO_CLI -> "Check kiro-cli whoami and use a version with V2 stream-json support.";
+                    case AZURE_ENTRA -> "Sign in with az login and check access to your Azure deployment.";
+                    default -> "Check CLI login, profile, and version in a terminal.";
+                };
+                throw new IOException(cli + " could not " + operation + ". " + hint);
             }
             writer.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             return new String(data, StandardCharsets.UTF_8);
