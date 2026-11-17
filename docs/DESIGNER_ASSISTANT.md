@@ -1,14 +1,42 @@
 # Designer Assistant 0.4.7
 
-Designer Assistant is a separate module for **Ignition 8.3.9**. It uses the signed-in Designer session to reach the Ignition MCP Gateway module. The chat discovers the Gateway tool catalog, so scripts, Named Queries, Perspective, project resources, tags, UDTs, alarm pipelines, and available Gateway diagnostics use the same implementations and authorization rules as MCP clients.
+Designer Assistant adds a chat dock to **Ignition Designer 8.3.9**. Open a project and ask about its Perspective views, scripts, Named Queries, tags, UDTs, or other resources. You can also ask for changes and review them before applying them.
 
-## Install and use
+Designer connects to the model provider from the workstation. For Gateway-backed actions, the dock uses the signed-in Designer session and discovers the tools authorized for that user in Ignition MCP. It also uses native Designer APIs for working-copy inspection and basic UDT creation. Model credentials are configured on the workstation. Gateway authorization is configured by a Gateway administrator.
 
-1. Install signed **Ignition MCP 0.5.1** and **Designer Assistant 0.4.7** on the Gateway. Restart the Gateway if the module list shows **Pending restart**, then reopen Designer.
-2. In **Services → Ignition MCP → Configuration → Access & writes**, add an authorization profile with an identity pattern such as `designer:jane`, using the username from Jane's Designer sign-in. Grant the tools and targets the user should be able to access. Enable Gateway writes if the user needs to apply changes. **Full access** is available for a trusted account on an isolated test Gateway. Keep production grants scoped to the user's work. Existing API token profiles continue to apply to API clients.
-3. In Designer, open your project and find **View → Panels → Designer Assistant**. Open **Model settings** in the header to configure your provider. Press **Enter** to send and **Shift+Enter** for a new line. Drag the handle above the message box to resize it.
-4. Ask the assistant to inspect an existing resource or give it a specific change and destination. For example, “Create a Project Library script at Utilities/MemoryTags that defines a function for creating two memory tags named test and test1. Save the script without running the function.”
-5. With **Review** selected beside the composer, choose **Details** to see Python, SQL, component summaries, and resource changes when available. Select **Approve** when the proposed change is ready. You can dismiss a proposal or send a revision. **Auto-apply** applies permitted changes within the current chat. New chats start in review mode.
+## Download and install
+
+Use the matching pair on an Ignition **8.3.9** test Gateway.
+
+| File | Version | Scope |
+| --- | --- | --- |
+| `ignition-mcp.modl` | **0.5.1** | Gateway tools and access configuration |
+| `ignition-designer-assistant.modl` | **0.4.7** | Designer chat dock and local model connections |
+
+This pair is currently available as a [Designer Assistant branch preview](https://github.com/JonathanGrocott/ignition-mcp/actions/runs/43994853317). Sign in to GitHub, download the **ignition-mcp-module** and **ignition-designer-assistant-module** artifacts from the same successful run, and unzip them. If that run's artifacts have expired, check the [branch builds](https://github.com/JonathanGrocott/ignition-mcp/actions/workflows/build.yml?query=branch%3Adev%2Fdesigner-assistant) for a newer compatible pair. CI uses a development signing certificate that can change between runs.
+
+Check each module against its accompanying `.sha256` file. From the folder containing a module and its checksum file, run `sha256sum -c ignition-mcp.modl.sha256` on Linux or `shasum -a 256 -c ignition-mcp.modl.sha256` on macOS. Repeat for `ignition-designer-assistant.modl.sha256`. In PowerShell, run `Get-FileHash -Algorithm SHA256 .\ignition-mcp.modl`, then repeat for the Designer module. Compare each hash with the first value in its checksum file.
+
+1. In the Gateway, open **Platform → System → Modules** and choose **Install or Upgrade Module**. Install the Gateway module, then the Designer module.
+2. Review the signing certificate when prompted. Follow any restart prompt and confirm both versions on the Modules page. Reopen Designer so the workstation loads the installed Designer module.
+3. Open your project. If the dock is hidden, choose **View → Panels → Designer Assistant**.
+
+[Ignition module installation and certificate verification](https://www.docs.inductiveautomation.com/docs/8.3/getting-started/installing-and-upgrading/installing-or-upgrading-a-module)
+
+## Grant Gateway tool access
+
+In **Services → Ignition MCP → Configuration → Access & writes**, add a reader profile for the user's Designer identity. Under **API token names**, enter `designer:jane` for a user who signs into Designer as `jane`. Enter the exact username that Ignition records. The dock authenticates through that Designer session and does not need an Ignition API key.
+
+Start with scoped read tools and paths. For a first Perspective test, grant `ignition.perspective.views.list` and `ignition.perspective.views.read` and set **Readable project resources** to `MyProject/com.inductiveautomation.perspective/views/*`, replacing `MyProject` with the actual project name. Click **Save changes**. **Profiles only** applies matching profile grants without adding the Gateway's global grants. Check the effect on existing MCP clients before changing this Gateway-wide setting.
+
+## Try a chat and review a change
+
+1. Open **Model settings**, choose a provider below, and click **Test connection**. Click **OK** after it succeeds.
+2. Ask “List the Perspective views in this project.” Open one view, select a component, and ask “What does this component do?” The dock shows the editor context it uses.
+3. In a test project with write access, ask “Create a memory-tag UDT called Pump under Utilities/Cooling with a Boolean Running member.” For a different resource type, ask “Create a Project Library script at Utilities/MemoryTags. Save it without running it.”
+4. In **Review** mode, inspect the proposal and any **Details** before you choose **Approve**. You can also dismiss it or send a revision. **Auto-apply** applies permitted changes in that chat. New chats start in **Review** mode.
+
+Press **Enter** to send and **Shift+Enter** for a new line. Drag the handle above the message box to resize it.
 
 Choose **New chat** to open a tab. Tabs take their name from the first message. Double-click a tab, use its **Rename chat…** menu, or press **F2** with the tab selected to give it a name. Switch between tabs to return to each conversation, draft, and pending proposal. Model settings are shared across tabs. Chats are kept while Designer is open.
 
@@ -20,7 +48,7 @@ For large results, the assistant can retrieve individual JSON sections or contin
 
 The active project is taken from the authenticated Designer session. Open another project to work on its resources. Native inspection can see unsaved Designer state. Gateway changes persist directly and check for unsaved edits to their targets. After a successful project change, the assistant triggers Designer’s **Update Project** command. Concurrent edits use Designer’s standard conflict dialog. If the update cannot start, the chat points you to **File → Update Project**.
 
-Gateway permissions still control committing changes, running Named Queries, writing live tag values, and acknowledging alarms. Existing simple UDT creation continues to use Designer's native tag permissions. Direct bundle writes require the Gateway's **Direct project changes** setting. Stored plans are scoped to the Designer session and project, expire in ten minutes, and check for changed resources before applying. Scoped profiles for stored plans should grant preview, status and apply plus the relevant resource paths.
+For Gateway tools, the Gateway write setting, matching profile grants, and target scopes still apply in both chat modes. This includes writes that run Named Queries, change live tag values, or acknowledge alarms. Native inspection and basic UDT creation use the signed-in Designer user's Ignition permissions. To limit that UDT path to read-only use, restrict the user's native tag editing permissions. Direct bundle writes also require **Direct project changes**. Stored plans are scoped to the Designer session and project, expire in ten minutes, and check for changed resources before applying. Grant preview, status and apply tools plus the relevant resource paths when using stored plans.
 
 See [Tool Reference](TOOL_REFERENCE.md) for the complete catalog and [Change Workflows](CHANGE_WORKFLOWS.md) for resource and bundle behavior.
 
@@ -49,7 +77,19 @@ Each provider remembers its URL, model or deployment, and applicable executable.
 
 The CLI adapters use short-lived calls. Designer Assistant manages the conversation, project tools, and review behavior for all providers. Kiro runs a temporary agent with an empty tool list and removes the local Kiro session after the call when the CLI is available. [Kiro headless mode](https://kiro.dev/docs/cli/headless/), [Kiro session management](https://kiro.dev/docs/cli/chat/session-management/)
 
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| The dock is missing | Verify both modules are active on the same 8.3.9 Gateway. Complete any pending restart, reopen Designer, and check **View → Panels**. |
+| The connection test fails | For a CLI, check sign-in in a terminal on the Designer workstation. Use **Browse…** if lookup fails. For HTTP, verify the full endpoint, model or deployment, and credential. |
+| Chat works but Gateway actions are unavailable | Check the selected Gateway, the saved `designer:<username>` profile, and its tool and target grants. Model connection and Gateway authorization are separate. |
+| A proposal cannot be applied | Check the Gateway write mode, target grants, and any unsaved Designer edits. If a stored plan expired, ask for a fresh preview. |
+| An applied project change is missing from the browser | Check for an Ignition conflict dialog. If the automatic update could not start, use **File → Update Project**. |
+
 ## Build and verify
+
+See [Publishing signed modules](RELEASING.md) for development signing, release verification, and distribution.
 
 Use JDK 17 and the 8.3.9 Ignition SDK. Gradle accepts an existing SDK tree with `-PassistantSdkDir=/path/to/sdk` containing `core/designer`, `core/client`, and `core/common`.
 

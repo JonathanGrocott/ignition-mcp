@@ -1,10 +1,13 @@
 # Ignition MCP
 
-A native Ignition 8.3 Gateway module that lets MCP clients inspect Gateway data and make explicitly authorized changes. It runs inside Ignition and uses the Gateway's existing HTTP/HTTPS port.
+Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Designer Assistant adds a chat dock to Ignition Designer 8.3.9 and uses the Gateway module for authorized project tools.
 
-**Start with the [illustrated User Guide](docs/USER_GUIDE.md).** It covers installation, API keys, read-only access, client connection, writes, change previews and troubleshooting.
+| Module | Install it for |
+|---|---|
+| **Ignition MCP** (`ignition-mcp.modl`) | Connecting an external MCP client to the Gateway using a scoped Ignition API key. [Gateway setup](docs/USER_GUIDE.md) |
+| **Designer Assistant** (`ignition-designer-assistant.modl`) | Asking about the open project and reviewing or applying changes from a dock in Designer. Uses your Designer login for Gateway tools and a model provider configured on your workstation. Install both modules for this setup. [Designer setup](docs/DESIGNER_ASSISTANT.md) |
 
-The optional [Designer Assistant](docs/DESIGNER_ASSISTANT.md) is a separate module for Ignition 8.3.9 with docked chat and reviewed Perspective view creation.
+The public [GitHub Releases](https://github.com/JonathanGrocott/ignition-mcp/releases) currently ship the Gateway module. Designer Assistant **0.4.7** and its companion Ignition MCP **0.5.1** are available for evaluation from the [Designer Assistant branch builds](https://github.com/JonathanGrocott/ignition-mcp/actions/workflows/build.yml?query=branch%3Adev%2Fdesigner-assistant). See the [install guide](docs/DESIGNER_ASSISTANT.md#download-and-install) for the compatible pair and development signing details.
 
 ![Ignition MCP Overview in the Gateway](docs/images/gateway/overview.jpg)
 
@@ -21,7 +24,7 @@ Ignition MCP **0.5.0** exposes **43 tools**:
 
 See the complete [Tool Reference](docs/TOOL_REFERENCE.md) for names, access classes and limitations. There is no arbitrary Gateway script execution tool. This is a tools-only MCP server; it does not expose MCP resources/prompts. The Gateway UI configures access and displays activity; change previews are returned to the MCP client.
 
-## Quick start
+## Quick start for external MCP clients
 
 1. Install the **signed** `ignition-mcp.modl` through **Platform → System → Modules** on an Ignition 8.3 development Gateway.
 2. Create an API key under **Platform → Security → API Keys**.
@@ -38,8 +41,9 @@ The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your 
 | Guide | Audience / purpose |
 |---|---|
 | [User Guide](docs/USER_GUIDE.md) | Illustrated installation, first read, scoped permissions, writes and troubleshooting |
+| [Designer Assistant](docs/DESIGNER_ASSISTANT.md) | Install the companion module, grant Designer access, choose a model, and review changes |
 | [Gateway UI](docs/GATEWAY_UI.md) | Section-by-section UI, visual profiles, themes, drafts and save behavior |
-| [Client Setup](docs/CLAUDE_CODEX_SETUP.md) | Codex desktop/CLI and Claude Code configuration, authentication and connection checks |
+| [External MCP Client Setup](docs/CLAUDE_CODEX_SETUP.md) | Codex desktop/CLI and Claude Code configuration for the Gateway MCP endpoint |
 | [Tool Reference](docs/TOOL_REFERENCE.md) | Tool names, required grants and supported write surfaces |
 | [Change Workflows](docs/CHANGE_WORKFLOWS.md) | Bundle format, preview/apply contracts, expiry, conflicts and uncertain outcomes |
 | [Inspection Tools](docs/INSPECTION_TOOLS.md) | Detailed inspection arguments, work budgets, partial results and unsupported formats |
@@ -47,6 +51,7 @@ The default endpoint is `http://localhost:8088/data/ignition-mcp/mcp`; use your 
 | [Local Gateway Testing](docs/LOCAL_GATEWAY_TESTING.md) | Developer setup and repeatable tests; distinguish read-only from committing runners |
 | [Manual Acceptance Workflow](docs/DEVELOPMENT_TEST_WORKFLOW.md) | Portable synthetic fixture setup and manual Designer acceptance steps |
 | [Validation evidence](docs/VALIDATION.md) | Automated/live results and qualification limits for the release features |
+| [Publishing signed modules](docs/RELEASING.md) | Branch artifacts, release signing, compatible asset pairs, and verification |
 
 ## Build from source
 
@@ -68,7 +73,7 @@ Outputs:
 
 `checksumModl` verifies that the packaged common/Gateway JARs match the current build outputs. Signing uses the existing local signing material; the helper creates a self-signed development certificate when none is present. Keep private signing material out of source control. See [certificate guidance](certs/README.md).
 
-The GitHub build/release workflows build, test, sign and package artifacts. Existing local validation covers the development builds used to implement these features; final release-artifact validation and publication are separate steps. See the [validation summary](docs/VALIDATION.md) for the exact builds tested.
+Branch CI produces development-signed artifacts for both modules. See the [release guide](docs/RELEASING.md) for publishing a tested pair under the release signing identity.
 
 ## Supported and unverified boundaries
 
