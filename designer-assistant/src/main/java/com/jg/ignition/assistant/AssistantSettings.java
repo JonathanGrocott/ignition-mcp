@@ -27,11 +27,23 @@ record AssistantSettings(ModelProvider.Settings provider) {
         }
         return new AssistantSettings(new ModelProvider.Settings(kind,
             PREFS.get("modelEndpoint", defaultEndpoint(kind)), PREFS.get("model", ""), "",
-            PREFS.get("credentialHeader", ""), PREFS.get("codex", ""), PREFS.get("profile", "")));
+            PREFS.get("credentialHeader", ""), executablePath(kind), PREFS.get("profile", "")));
     }
 
     private static String defaultEndpoint(ModelProvider.Kind kind) {
-        return kind == ModelProvider.Kind.ANTHROPIC ? ANTHROPIC : OPENAI;
+        return switch (kind) {
+            case ANTHROPIC -> ANTHROPIC;
+            case OPENAI_COMPATIBLE -> OPENAI;
+            case CODEX_CLI, CLAUDE_CLI -> "";
+        };
+    }
+
+    private static String executablePath(ModelProvider.Kind kind) {
+        return kind.isCli() ? PREFS.get(executableKey(kind), "") : "";
+    }
+
+    private static String executableKey(ModelProvider.Kind kind) {
+        return kind == ModelProvider.Kind.CLAUDE_CLI ? "claude" : "codex";
     }
 
     Optional<AssistantSettings> edit(Component owner) {
@@ -43,8 +55,9 @@ record AssistantSettings(ModelProvider.Settings provider) {
                 if (value instanceof ModelProvider.Kind item) {
                     setText(switch (item) {
                         case CODEX_CLI -> "Codex CLI (existing sign-in)";
-                        case OPENAI_COMPATIBLE -> "OpenAI-compatible HTTP";
-                        case ANTHROPIC -> "Anthropic Messages";
+                        case CLAUDE_CLI -> "Claude Code CLI (installed)";
+                        case OPENAI_COMPATIBLE -> "OpenAI / compatible API";
+                        case ANTHROPIC -> "Anthropic API";
                     });
                 }
                 return this;
@@ -55,8 +68,10 @@ record AssistantSettings(ModelProvider.Settings provider) {
         JTextField model = new JTextField(provider.model(), 28);
         JPasswordField key = new JPasswordField(provider.credential(), 28);
         JTextField header = new JTextField(provider.credentialHeader(), 28);
-        JTextField executable = new JTextField(provider.codexExecutable(), 28);
+        JTextField executable = new JTextField(provider.cliExecutable(), 28);
         JTextField profile = new JTextField(provider.codexProfile(), 28);
+        var executableDrafts = new java.util.EnumMap<ModelProvider.Kind, String>(ModelProvider.Kind.class);
+        var previousKind = new AtomicReference<>(provider.kind());
         JTextArea help = new JTextArea(3, 38);
         help.setEditable(false);
         help.setLineWrap(true);
@@ -81,27 +96,39 @@ record AssistantSettings(ModelProvider.Settings provider) {
         int row = 0;
         field(form, row++, "Provider", kind);
         field(form, row++, "Model", model);
-        field(form, row++, "Model URL", endpoint);
-        field(form, row++, "Model credential", key);
-        field(form, row++, "Credential header", header);
-        field(form, row++, "Codex executable", executable);
-        field(form, row++, "Trusted Codex profile", profile);
+        var endpointLabel = field(form, row++, "Model URL", endpoint);
+        var keyLabel = field(form, row++, "Model credential", key);
+        var headerLabel = field(form, row++, "Credential header", header);
+        var executableLabel = field(form, row++, "CLI executable", executable);
+        var profileLabel = field(form, row++, "Trusted Codex profile", profile);
         field(form, row++, "", help);
         field(form, row++, "", test);
         field(form, row, "", testStatus);
         Runnable refresh = () -> {
-            boolean cli = kind.getSelectedItem() == ModelProvider.Kind.CODEX_CLI;
-            endpoint.setEnabled(!cli);
-            key.setEnabled(!cli);
-            header.setEnabled(!cli);
-            executable.setEnabled(cli);
-            profile.setEnabled(cli);
-            help.setText(cli
-                ? "Use the installed CLI's sign-in. Leave profile blank to use default settings, or enter a trusted profile for your organization."
-                : "Use the full model URL. Credentials can be entered here or as env:VARIABLE. Leave the header blank for the provider default.");
+            var selected = (ModelProvider.Kind) kind.getSelectedItem();
+            boolean cli = selected.isCli();
+            boolean codex = selected == ModelProvider.Kind.CODEX_CLI;
+            endpoint.setVisible(!cli);
+            endpointLabel.setVisible(!cli);
+            key.setVisible(!cli);
+            keyLabel.setVisible(!cli);
+            header.setVisible(!cli);
+            headerLabel.setVisible(!cli);
+            executable.setVisible(cli);
+            executableLabel.setVisible(cli);
+            profile.setVisible(codex);
+            profileLabel.setVisible(codex);
+            help.setText(switch (selected) {
+                case CODEX_CLI -> "Use the installed Codex sign-in. Leave the model and executable blank to use the defaults. Enter a trusted organization profile if needed.";
+                case CLAUDE_CLI -> "Use the authentication configured in the installed Claude Code. Leave the model and executable blank to use the defaults.";
+                case OPENAI_COMPATIBLE, ANTHROPIC -> "Enter the model ID and full URL. Enter a credential or env:VARIABLE. Leave the header blank for the provider default.";
+            });
         };
         kind.addActionListener(event -> {
-            endpoint.setText(defaultEndpoint((ModelProvider.Kind) kind.getSelectedItem()));
+            var selected = (ModelProvider.Kind) kind.getSelectedItem();
+            executableDrafts.put(previousKind.getAndSet(selected), executable.getText());
+            executable.setText(executableDrafts.getOrDefault(selected, executablePath(selected)));
+            endpoint.setText(defaultEndpoint(selected));
             model.setText("");
             key.setText("");
             header.setText("");
@@ -124,7 +151,7 @@ record AssistantSettings(ModelProvider.Settings provider) {
                     }
                     try {
                         get();
-                        testStatus.setText("Reply verified from " + candidate.connectionDescription());
+                        testStatus.setText("Connection verified with " + candidate.displayName() + ".");
                     } catch (ExecutionException e) {
                         testStatus.setText(e.getCause() instanceof IOException
                             ? e.getCause().getMessage() : "The connection check failed.");
@@ -160,8 +187,12 @@ record AssistantSettings(ModelProvider.Settings provider) {
         }
         PREFS.put("model", updated.model());
         PREFS.put("credentialHeader", updated.credentialHeader());
-        PREFS.put("codex", updated.codexExecutable());
-        PREFS.put("profile", updated.codexProfile());
+        if (selected.isCli()) {
+            PREFS.put(executableKey(selected), updated.cliExecutable());
+        }
+        if (selected == ModelProvider.Kind.CODEX_CLI) {
+            PREFS.put("profile", updated.codexProfile());
+        }
         return Optional.of(new AssistantSettings(updated));
     }
 
@@ -178,7 +209,7 @@ record AssistantSettings(ModelProvider.Settings provider) {
         return "AssistantSettings[provider=" + provider.kind() + "]";
     }
 
-    private static void field(JPanel panel, int row, String caption, JComponent input) {
+    private static JLabel field(JPanel panel, int row, String caption, JComponent input) {
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.gridy = row;
         constraints.insets = new Insets(4, 6, 4, 6);
@@ -190,5 +221,6 @@ record AssistantSettings(ModelProvider.Settings provider) {
         constraints.fill = GridBagConstraints.HORIZONTAL;
         constraints.weightx = 1;
         panel.add(input, constraints);
+        return label;
     }
 }

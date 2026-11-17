@@ -128,6 +128,49 @@ class ModelProviderTest {
         assertEquals("answer", ModelProvider.complete(config, HISTORY, SYSTEM));
     }
 
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void claudeUsesLocalCliWithNoToolsAndReadsTheSingleResult(@TempDir Path directory) throws Exception {
+        Path executable = directory.resolve("claude executable");
+        Files.writeString(executable, """
+            #!/bin/sh
+            test "$1" = '--safe-mode' && test "$2" = '--print' || exit 10
+            case "$*" in
+              *'--output-format json --no-session-persistence --tools  --strict-mcp-config --disallowed-tools * --permission-mode dontAsk --no-chrome --max-turns 1'*'--model model-override') ;;
+              *) exit 11 ;;
+            esac
+            test -z "$(ls -A)" || exit 12
+            prompt="$(cat)"
+            case "$prompt" in
+              *'Reply as JSON.'*'Example request'*'Example reply'*'Next request'*) ;;
+              *) exit 13 ;;
+            esac
+            case "$prompt $*" in *'unused-api-secret'*) exit 14 ;; esac
+            printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"answer"}'
+            """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        var config = new ModelProvider.Settings(ModelProvider.Kind.CLAUDE_CLI, "", "model-override",
+            "unused-api-secret", "", executable.toString(), "");
+        assertEquals("answer", ModelProvider.complete(config, HISTORY, SYSTEM));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void claudeErrorResultDoesNotExposeProviderOutput(@TempDir Path directory) throws Exception {
+        Path executable = directory.resolve("claude");
+        Files.writeString(executable, """
+            #!/bin/sh
+            cat >/dev/null
+            printf '%s\\n' '{"type":"result","subtype":"error","is_error":true,"result":"private error details"}'
+            """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        var config = new ModelProvider.Settings(ModelProvider.Kind.CLAUDE_CLI, "", "", "", "",
+            executable.toString(), "");
+        var error = assertThrows(IOException.class, () -> ModelProvider.complete(config, HISTORY, SYSTEM));
+        assertTrue(error.getMessage().contains("Claude Code CLI"));
+        assertFalse(error.getMessage().contains("private error details"));
+    }
+
     private static final class MockEndpoint implements AutoCloseable {
         private final HttpServer server;
         private final AtomicReference<JsonNode> data = new AtomicReference<>();

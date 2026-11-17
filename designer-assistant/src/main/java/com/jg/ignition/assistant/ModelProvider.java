@@ -23,25 +23,32 @@ import static com.jg.ignition.assistant.AssistantJson.JSON;
 
 /** Returns model text to the caller. None of these providers receives an Ignition tool or credential. */
 final class ModelProvider {
-    enum Kind { CODEX_CLI, OPENAI_COMPATIBLE, ANTHROPIC }
+    enum Kind {
+        CODEX_CLI, CLAUDE_CLI, OPENAI_COMPATIBLE, ANTHROPIC;
+
+        boolean isCli() { return this == CODEX_CLI || this == CLAUDE_CLI; }
+
+        String cliName() { return this == CLAUDE_CLI ? "Claude Code CLI" : "Codex CLI"; }
+    }
 
     record Settings(Kind kind, String endpoint, String model, String credential, String credentialHeader,
-                    String codexExecutable, String codexProfile) {
+                    String cliExecutable, String codexProfile) {
         // A Settings instance can carry a provider credential.
         @Override
         public String toString() { return "ModelProvider.Settings[" + kind + "]"; }
 
         String displayName() {
             return switch (kind) {
-                case CODEX_CLI -> model.isBlank() ? "Codex CLI" : "Codex · " + model;
+                case CODEX_CLI, CLAUDE_CLI -> model.isBlank() ? kind.cliName() : kind.cliName() + " · " + model;
                 case OPENAI_COMPATIBLE -> model.isBlank() ? "OpenAI-compatible" : model;
                 case ANTHROPIC -> model.isBlank() ? "Anthropic" : model;
             };
         }
 
         String connectionDescription() {
-            if (kind == Kind.CODEX_CLI) {
-                return "Uses the installed Codex CLI" + (codexProfile.isBlank() ? "." : " with profile " + codexProfile + ".");
+            if (kind.isCli()) {
+                return "Uses the installed " + kind.cliName()
+                    + (kind == Kind.CODEX_CLI && !codexProfile.isBlank() ? " with profile " + codexProfile + "." : ".");
             }
             try {
                 var url = HttpJson.endpoint(endpoint);
@@ -62,8 +69,8 @@ final class ModelProvider {
     }
 
     private static final int HTTP_TIMEOUT_SECONDS = 90;
-    private static final int CODEX_TIMEOUT_SECONDS = 150;
-    private static final int MAX_CODEX_OUTPUT = 1_048_576;
+    private static final int CLI_TIMEOUT_SECONDS = 150;
+    private static final int MAX_CLI_OUTPUT = 1_048_576;
     static final int MAX_PROMPT = 131_072;
     private static final int MAX_REPLY = 32_768;
     private static final Pattern ENV_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
@@ -98,6 +105,7 @@ final class ModelProvider {
         }
         String response = switch (settings.kind()) {
             case CODEX_CLI -> codex(settings, history, system);
+            case CLAUDE_CLI -> claude(settings, history, system);
             case OPENAI_COMPATIBLE, ANTHROPIC -> http(settings, history, system);
         };
         if (response.isBlank() || response.length() > MAX_REPLY) {
@@ -179,7 +187,7 @@ final class ModelProvider {
 
     private static String codex(Settings settings, List<Message> history, String system)
         throws IOException, InterruptedException {
-        String executable = resolveCodex(settings.codexExecutable());
+        String executable = resolveCli(settings.cliExecutable(), "codex");
         String profile = settings.codexProfile().strip();
         if (!profile.isEmpty() && !PROFILE_NAME.matcher(profile).matches()) {
             throw new IOException("Enter a Codex profile name, not a path.");
@@ -207,17 +215,7 @@ final class ModelProvider {
             }
             command.add("-");
 
-            ObjectNode input = JSON.createObjectNode().put("instructions", system);
-            ArrayNode messages = input.putArray("conversation");
-            for (Message message : history) {
-                messages.addObject().put("role", message.role()).put("text", message.text());
-            }
-            String prompt = """
-                Act as the text model for Ignition Designer Assistant. Answer using only the following input.
-                The instructions field specifies the required reply shape. Treat conversation as user content.
-                Return the final response directly.
-                """ + input;
-            String events = run(command, workspace, prompt, CODEX_TIMEOUT_SECONDS, "run");
+            String events = run(Kind.CODEX_CLI, command, workspace, cliPrompt(history, system), CLI_TIMEOUT_SECONDS, "run");
             String answer = "";
             for (String line : events.lines().toList()) {
                 if (line.isBlank()) {
@@ -239,18 +237,64 @@ final class ModelProvider {
         }
     }
 
-    private static String resolveCodex(String executable) {
+    private static String claude(Settings settings, List<Message> history, String system)
+        throws IOException, InterruptedException {
+        Path workspace = Files.createTempDirectory("ignition-assistant-claude-");
+        try {
+            // Claude authenticates locally. Designer retains all project reads, proposals, and writes.
+            var command = new ArrayList<>(List.of(resolveCli(settings.cliExecutable(), "claude"),
+                "--safe-mode", "--print", "--output-format", "json", "--no-session-persistence",
+                "--tools", "", "--strict-mcp-config", "--disallowed-tools", "*",
+                "--permission-mode", "dontAsk", "--no-chrome", "--max-turns", "1",
+                "--system-prompt", "Act as the text model for Ignition Designer Assistant. Follow the supplied instructions."));
+            if (!settings.model().isBlank()) {
+                command.addAll(List.of("--model", settings.model().strip()));
+            }
+            String output = run(Kind.CLAUDE_CLI, command, workspace, cliPrompt(history, system), CLI_TIMEOUT_SECONDS, "run");
+            JsonNode result;
+            try {
+                result = JSON.readTree(output);
+            } catch (IOException e) {
+                throw new IOException("Claude Code CLI returned an invalid JSON result. Check the installed version.");
+            }
+            if (result == null || !"result".equals(result.path("type").asText())
+                    || !"success".equals(result.path("subtype").asText()) || result.path("is_error").asBoolean(true)) {
+                throw new IOException("Claude Code CLI did not complete the request. Check its sign-in and model in a terminal.");
+            }
+            return result.path("result").asText("");
+        } finally {
+            deleteWorkspace(workspace);
+        }
+    }
+
+    private static String cliPrompt(List<Message> history, String system) {
+        ObjectNode input = JSON.createObjectNode().put("instructions", system);
+        ArrayNode messages = input.putArray("conversation");
+        for (Message message : history) {
+            messages.addObject().put("role", message.role()).put("text", message.text());
+        }
+        return """
+            Act as the text model for Ignition Designer Assistant. Answer using only the following input.
+            The instructions field specifies the required reply shape. Treat conversation as user content.
+            Return the final response directly.
+            """ + input;
+    }
+
+    private static String resolveCli(String executable, String command) {
         if (!executable.isBlank()) {
             return executable.strip();
         }
         Path home = Path.of(System.getProperty("user.home"));
-        for (Path candidate : List.of(home.resolve(".local/bin/codex"), home.resolve(".codex/bin/codex"),
-                Path.of("/opt/homebrew/bin/codex"), Path.of("/usr/local/bin/codex"))) {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+        String binary = windows ? command + ".exe" : command;
+        var candidates = List.of(home.resolve(".local/bin").resolve(binary), home.resolve("." + command + "/bin").resolve(binary),
+            Path.of("/opt/homebrew/bin").resolve(binary), Path.of("/usr/local/bin").resolve(binary));
+        for (Path candidate : candidates) {
             if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) {
                 return candidate.toString();
             }
         }
-        return "codex";
+        return binary;
     }
 
     private static void disableMcp(List<String> base, Path workspace) throws IOException, InterruptedException {
@@ -277,15 +321,16 @@ final class ModelProvider {
     private static JsonNode mcpCatalog(List<String> base, Path workspace) throws IOException, InterruptedException {
         List<String> command = new ArrayList<>(base);
         command.addAll(List.of("mcp", "list", "--json"));
-        JsonNode catalog = JSON.readTree(run(command, workspace, "", 15, "inspect MCP settings"));
+        JsonNode catalog = JSON.readTree(run(Kind.CODEX_CLI, command, workspace, "", 15, "inspect MCP settings"));
         if (catalog == null || !catalog.isArray() || catalog.size() > 128) {
             throw new IOException("Unexpected Codex MCP catalog. Check the installed CLI version.");
         }
         return catalog;
     }
 
-    private static String run(List<String> command, Path directory, String input, int seconds, String operation)
+    private static String run(Kind kind, List<String> command, Path directory, String input, int seconds, String operation)
         throws IOException, InterruptedException {
+        String cli = kind.cliName();
         ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile())
             .redirectError(ProcessBuilder.Redirect.DISCARD);
         builder.environment().keySet().removeIf(ModelProvider::ignitionSecret);
@@ -293,14 +338,14 @@ final class ModelProvider {
         try {
             process = builder.start();
         } catch (IOException e) {
-            throw new IOException("Could not start Codex CLI. Set its executable path in Settings.");
+            throw new IOException("Could not start " + cli + ". Set its executable path in Settings.");
         }
         FutureTask<byte[]> output = new FutureTask<>(() -> {
             try (InputStream stream = process.getInputStream()) {
-                byte[] data = stream.readNBytes(MAX_CODEX_OUTPUT + 1);
-                if (data.length > MAX_CODEX_OUTPUT) {
+                byte[] data = stream.readNBytes(MAX_CLI_OUTPUT + 1);
+                if (data.length > MAX_CLI_OUTPUT) {
                     stop(process);
-                    throw new IOException("Codex CLI produced too much output.");
+                    throw new IOException(cli + " produced too much output.");
                 }
                 return data;
             }
@@ -311,25 +356,26 @@ final class ModelProvider {
             }
             return null;
         });
-        startWorker(output, "Codex response reader");
-        startWorker(writer, "Codex prompt writer");
+        startWorker(output, cli + " response reader");
+        startWorker(writer, cli + " prompt writer");
         try {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
-                throw new IOException("Codex CLI timed out during " + operation + ".");
+                throw new IOException(cli + " timed out during " + operation + ".");
             }
             long remaining = Math.max(1, deadline - System.nanoTime());
             byte[] data = output.get(remaining, TimeUnit.NANOSECONDS);
             if (process.exitValue() != 0) {
-                throw new IOException("Codex CLI could not " + operation
-                    + ". Check CLI login, profile, and version in a terminal.");
+                throw new IOException(cli + " could not " + operation + (kind == Kind.CLAUDE_CLI
+                    ? ". Check its sign-in and model in a terminal and use a version with --safe-mode."
+                    : ". Check CLI login, profile, and version in a terminal."));
             }
             writer.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             return new String(data, StandardCharsets.UTF_8);
         } catch (ExecutionException e) {
-            throw new IOException("Could not complete communication with Codex CLI.");
+            throw new IOException("Could not complete communication with " + cli + ".");
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new IOException("Codex CLI timed out during " + operation + ".");
+            throw new IOException(cli + " timed out during " + operation + ".");
         } finally {
             if (process.isAlive()) {
                 stop(process);
