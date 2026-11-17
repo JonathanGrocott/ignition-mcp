@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.5.1 (unreleased)
+## 0.5.1
 
 - Added Designer-session access to the existing MCP catalog through explicit Gateway authorization profiles.
 - The companion **Designer Assistant 0.4.7** adds docked chat for Ignition 8.3.9 with project and editor context, reviewed changes, auto-apply, JSON attachments, and project bundle import/export.
 - Designer Assistant supports installed Codex, Claude Code, and Kiro CLIs, OpenAI-compatible and Anthropic APIs, and presets for Azure OpenAI/Foundry, Gemini, Ollama, and Bedrock. See the [Designer Assistant setup guide](docs/DESIGNER_ASSISTANT.md).
+- The paired prerelease includes signed modules and SHA-256 checksums for both downloads. It preserves the 0.5.0 signing certificate.
 
 ## 0.5.0 (2026-11-11)
 

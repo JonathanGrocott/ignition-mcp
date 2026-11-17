@@ -7,7 +7,7 @@ Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Design
 | **Ignition MCP** (`ignition-mcp.modl`) | Connecting an external MCP client to the Gateway using a scoped Ignition API key. [Gateway setup](docs/USER_GUIDE.md) |
 | **Designer Assistant** (`ignition-designer-assistant.modl`) | Asking about the open project and reviewing or applying changes from a dock in Designer. Uses your Designer login for Gateway tools and a model provider configured on your workstation. Install both modules for this setup. [Designer setup](docs/DESIGNER_ASSISTANT.md) |
 
-The public [GitHub Releases](https://github.com/JonathanGrocott/ignition-mcp/releases) currently ship the Gateway module. Designer Assistant **0.4.7** and its companion Ignition MCP **0.5.1** are available for evaluation from the [Designer Assistant branch builds](https://github.com/JonathanGrocott/ignition-mcp/actions/workflows/build.yml?query=branch%3Adev%2Fdesigner-assistant). See the [install guide](docs/DESIGNER_ASSISTANT.md#download-and-install) for the compatible pair and development signing details.
+Download signed modules and SHA-256 checksums from [GitHub Releases](https://github.com/JonathanGrocott/ignition-mcp/releases). The [0.5.1 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.5.1) includes Ignition MCP **0.5.1** and Designer Assistant **0.4.7**. See the [Designer install guide](docs/DESIGNER_ASSISTANT.md#download-and-install) for the compatible pair and setup.
 
 ![Ignition MCP Overview in the Gateway](docs/images/gateway/overview.jpg)
 

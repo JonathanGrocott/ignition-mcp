@@ -13,7 +13,7 @@ Use the matching pair on an Ignition **8.3.9** test Gateway.
 | `ignition-mcp.modl` | **0.5.1** | Gateway tools and access configuration |
 | `ignition-designer-assistant.modl` | **0.4.7** | Designer chat dock and local model connections |
 
-This pair is currently available as a [Designer Assistant branch preview](https://github.com/JonathanGrocott/ignition-mcp/actions/runs/43994853317). Sign in to GitHub, download the **ignition-mcp-module** and **ignition-designer-assistant-module** artifacts from the same successful run, and unzip them. If that run's artifacts have expired, check the [branch builds](https://github.com/JonathanGrocott/ignition-mcp/actions/workflows/build.yml?query=branch%3Adev%2Fdesigner-assistant) for a newer compatible pair. CI uses a development signing certificate that can change between runs.
+Download both `.modl` files and their `.sha256` files from the [Ignition MCP 0.5.1 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.5.1). Both modules use the same signing certificate as the 0.5.0 release.
 
 Check each module against its accompanying `.sha256` file. From the folder containing a module and its checksum file, run `sha256sum -c ignition-mcp.modl.sha256` on Linux or `shasum -a 256 -c ignition-mcp.modl.sha256` on macOS. Repeat for `ignition-designer-assistant.modl.sha256`. In PowerShell, run `Get-FileHash -Algorithm SHA256 .\ignition-mcp.modl`, then repeat for the Designer module. Compare each hash with the first value in its checksum file.
 
