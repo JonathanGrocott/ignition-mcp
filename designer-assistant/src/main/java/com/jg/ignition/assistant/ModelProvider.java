@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 import static com.jg.ignition.assistant.AssistantJson.JSON;
@@ -91,6 +92,8 @@ final class ModelProvider {
 
     private static final int HTTP_TIMEOUT_SECONDS = 90;
     private static final int CLI_TIMEOUT_SECONDS = 150;
+    private static final int CLI_PROBE_SECONDS = 12;
+    private static final int MAX_CLI_ERROR = 8_192;
     private static final int MAX_CLI_OUTPUT = 1_048_576;
     static final int MAX_PROMPT = 131_072;
     private static final int MAX_REPLY = 32_768;
@@ -98,6 +101,9 @@ final class ModelProvider {
     private static final Pattern KIRO_SESSION_ID = Pattern.compile("(?i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}");
     private static final Pattern MCP_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,128}");
     private static final Pattern PROFILE_NAME = Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}");
+    private static final Pattern CLI_VERSION = Pattern.compile(
+        "(?<![A-Za-z0-9])v?(\\d{1,6}\\.\\d{1,6}\\.\\d{1,6}(?:[-+][A-Za-z0-9.]{1,32})?)(?![A-Za-z0-9])");
+    private static final Pattern START_ERROR = Pattern.compile("\\berror=(\\d{1,8})(?:,|\\b)");
     private static final List<String> CLI_RESTRICTIONS = List.of(
         "-c", "approval_policy=\"never\"",
         "-c", "web_search=\"disabled\"",
@@ -115,6 +121,41 @@ final class ModelProvider {
         if (!"DESIGNER_READY".equals(reply)) {
             throw new IOException("The provider responded, but the reply did not match the connection check.");
         }
+    }
+
+    static void testConnection(Settings settings, Consumer<String> progress) throws IOException, InterruptedException {
+        if (settings.kind().isCli()) {
+            String executable = CliExecutable.resolve(settings.cliExecutable(), settings.kind().command);
+            Path workspace = Files.createTempDirectory("ignition-assistant-check-");
+            try {
+                progress.accept("Checking whether the CLI launches…");
+                String versionOutput = run(settings.kind(), List.of(executable, "--version"), workspace, "",
+                    CLI_PROBE_SECONDS, "check the version");
+                var version = CLI_VERSION.matcher(versionOutput);
+                progress.accept(version.find() ? "CLI launched. Version " + version.group(1) + "."
+                    : "CLI launched. It reported no recognizable version.");
+                List<String> auth = switch (settings.kind()) {
+                    case CODEX_CLI -> List.of(executable, "login", "status");
+                    case CLAUDE_CLI -> List.of(executable, "auth", "status");
+                    case KIRO_CLI -> List.of(executable, "whoami");
+                    default -> throw new IllegalStateException("Expected a CLI provider.");
+                };
+                try {
+                    run(settings.kind(), auth, workspace, "", CLI_PROBE_SECONDS, "check sign-in");
+                    progress.accept("CLI sign-in check passed.");
+                } catch (IOException e) {
+                    // Managed profiles may authenticate differently from the account probe.
+                    progress.accept("CLI sign-in could not be confirmed. " + e.getMessage());
+                }
+                settings = new Settings(settings.kind(), settings.endpoint(), settings.model(), settings.credential(),
+                    settings.credentialHeader(), executable, settings.codexProfile());
+            } finally {
+                deleteWorkspace(workspace);
+            }
+        }
+        progress.accept(settings.kind().isCli() ? "Testing a non-interactive model reply…"
+            : "Sending a connection check with no project data…");
+        checkConnection(settings);
     }
 
     static String complete(Settings settings, List<Message> history, String system)
@@ -301,7 +342,12 @@ final class ModelProvider {
                 if (line.isBlank()) {
                     continue;
                 }
-                JsonNode event = JSON.readTree(line);
+                JsonNode event;
+                try {
+                    event = JSON.readTree(line);
+                } catch (IOException e) {
+                    throw new IOException("Codex CLI returned an invalid response stream. Check the installed version.");
+                }
                 JsonNode item = event.path("item");
                 if (!event.isObject()) {
                     throw new IOException("Unexpected Codex CLI event.");
@@ -456,7 +502,13 @@ final class ModelProvider {
     private static JsonNode mcpCatalog(List<String> base, Path workspace) throws IOException, InterruptedException {
         List<String> command = new ArrayList<>(base);
         command.addAll(List.of("mcp", "list", "--json"));
-        JsonNode catalog = JSON.readTree(run(Kind.CODEX_CLI, command, workspace, "", 15, "inspect MCP settings"));
+        String output = run(Kind.CODEX_CLI, command, workspace, "", 15, "inspect MCP settings");
+        JsonNode catalog;
+        try {
+            catalog = JSON.readTree(output);
+        } catch (IOException e) {
+            throw new IOException("Codex CLI returned an invalid MCP catalog. Check the installed version.");
+        }
         if (catalog == null || !catalog.isArray() || catalog.size() > 128) {
             throw new IOException("Unexpected Codex MCP catalog. Check the installed CLI version.");
         }
@@ -466,8 +518,7 @@ final class ModelProvider {
     private static String run(Kind kind, List<String> command, Path directory, String input, int seconds, String operation)
         throws IOException, InterruptedException {
         String cli = kind.cliName();
-        ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile())
-            .redirectError(ProcessBuilder.Redirect.DISCARD);
+        ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile());
         builder.environment().keySet().removeIf(ModelProvider::ignitionSecret);
         if (kind == Kind.KIRO_CLI) {
             builder.environment().put("KIRO_LOG_NO_COLOR", "1");
@@ -476,7 +527,9 @@ final class ModelProvider {
         try {
             process = builder.start();
         } catch (IOException e) {
-            throw new IOException("Could not start " + cli + ". Set its executable path in Settings.");
+            var code = START_ERROR.matcher(Objects.toString(e.getMessage(), ""));
+            throw new IOException("Could not start " + cli + (code.find() ? " (OS error " + code.group(1) + ")" : "")
+                + ". Confirm that the selected executable launches on this workstation.");
         }
         FutureTask<byte[]> output = new FutureTask<>(() -> {
             try (InputStream stream = process.getInputStream()) {
@@ -494,23 +547,26 @@ final class ModelProvider {
             }
             return null;
         });
+        var errors = new FutureTask<>(() -> {
+            try (InputStream stream = process.getErrorStream()) {
+                byte[] prefix = stream.readNBytes(MAX_CLI_ERROR);
+                stream.transferTo(java.io.OutputStream.nullOutputStream());
+                return new String(prefix, StandardCharsets.UTF_8);
+            }
+        });
         startWorker(output, cli + " response reader");
         startWorker(writer, cli + " prompt writer");
+        startWorker(errors, cli + " error reader");
         try {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
                 throw new IOException(cli + " timed out during " + operation + ".");
             }
-            long remaining = Math.max(1, deadline - System.nanoTime());
-            byte[] data = output.get(remaining, TimeUnit.NANOSECONDS);
+            byte[] data = output.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             if (process.exitValue() != 0) {
-                String hint = switch (kind) {
-                    case CLAUDE_CLI -> "Check its sign-in and model in a terminal and use a version with --safe-mode.";
-                    case KIRO_CLI -> "Check kiro-cli whoami and use a version with V2 stream-json support.";
-                    case AZURE_ENTRA -> "Sign in with az login and check access to your Azure deployment.";
-                    default -> "Check CLI login, profile, and version in a terminal.";
-                };
-                throw new IOException(cli + " could not " + operation + ". " + hint);
+                String error = errors.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                throw new IOException(cli + " could not " + operation + " (exit " + process.exitValue() + "). "
+                    + cliErrorHint(kind, error));
             }
             writer.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             return new String(data, StandardCharsets.UTF_8);
@@ -524,7 +580,33 @@ final class ModelProvider {
             }
             output.cancel(true);
             writer.cancel(true);
+            errors.cancel(true);
         }
+    }
+
+    private static String cliErrorHint(Kind kind, String stderr) {
+        // Only fixed messages leave this method. CLI output can contain credentials or prompt text.
+        String error = stderr.toLowerCase(Locale.ROOT);
+        if (error.contains("unexpected argument") || error.contains("unknown option")
+                || error.contains("unrecognized option") || error.contains("unknown flag")
+                || error.contains("unrecognized subcommand") || error.contains("unknown command")) {
+            return "This CLI version did not recognize a required option or command.";
+        }
+        if (error.contains("not logged in") || error.contains("authentication failed")
+                || error.contains("unauthorized") || error.contains("invalid api key")
+                || error.contains("login required")) {
+            return "The CLI reported an authentication problem. Check its sign-in or configured profile.";
+        }
+        if (error.contains("certificate") || error.contains("failed to connect")
+                || error.contains("connection refused") || error.contains("proxy")) {
+            return "The CLI reported a connection problem. Check its network, proxy, and certificate settings.";
+        }
+        return switch (kind) {
+            case CLAUDE_CLI -> "Check sign-in and use a version with --safe-mode.";
+            case KIRO_CLI -> "Check kiro-cli whoami and use a version with V2 stream-json support.";
+            case AZURE_ENTRA -> "Sign in with az login and check access to your Azure deployment.";
+            default -> "Check CLI login, profile, and version in a terminal.";
+        };
     }
 
     private static boolean ignitionSecret(String key) {

@@ -1,4 +1,4 @@
-# Designer Assistant 0.4.7
+# Designer Assistant
 
 Designer Assistant adds a chat dock to **Ignition Designer 8.3.9**. Open a project and ask about its Perspective views, scripts, Named Queries, tags, UDTs, or other resources. You can also ask for changes and review them before applying them.
 
@@ -70,6 +70,8 @@ See [Tool Reference](TOOL_REFERENCE.md) for the complete catalog and [Change Wor
 Open **Model settings** in the Designer Assistant dock and select your provider. For a CLI, verify authentication in your terminal with `codex login status`, `claude auth status`, or `kiro-cli whoami`. Leave **Model** and **CLI executable** blank to use the defaults. If Designer cannot find the CLI, use **Browse…** to select its executable. Restart the Designer Launcher to pick up a Windows PATH change. On Windows, `where.exe codex.exe`, `where.exe claude.exe`, and `where.exe kiro-cli.exe` report matching executables on PATH.
 
 For a direct API, enter your **Model** and put the API key in **Model credential**. Leave **Credential header** blank for the provider default. A corporate proxy can use a custom header. Click **Test connection**, then **OK** to use the selected provider. The connection check sends a synthetic prompt without project data.
+
+In Designer Assistant 0.4.8 development builds, a CLI provider shows its detected executable and discovery source. Open **Advanced** to choose another installation, browse for a managed executable, or select **Reset to auto-detect**. **Test connection** reports the launch, sign-in, and model reply separately. **Copy diagnostics** includes the CLI version and any detected error category. Use **Check Gateway tools** to see whether the signed-in Designer user has any Gateway tool grants.
 
 Claude Code handles its own authentication, including any organization sign-in flow. If your workstation configuration relies on environment variables, make them available to the Designer process. [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference), [Claude Code authentication and distribution terms](https://code.claude.com/docs/en/legal-and-compliance)
 

@@ -34,7 +34,7 @@ final class AssistantDock extends JPanel {
         var newChat = iconButton(palette, "New chat", Glyph.PLUS, false);
         newChat.addActionListener(event -> addChat(true));
         var modelSettings = iconButton(palette, "Model settings", Glyph.SETTINGS, false);
-        modelSettings.addActionListener(event -> this.settings.edit(this).ifPresent(value -> {
+        modelSettings.addActionListener(event -> this.settings.edit(this, tools).ifPresent(value -> {
             this.settings = value;
             showProvider();
         }));

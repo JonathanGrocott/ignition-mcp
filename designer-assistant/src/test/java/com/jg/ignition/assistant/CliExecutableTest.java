@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -42,6 +43,17 @@ class CliExecutableTest {
     }
 
     @Test
+    void listsAlternateInstallsInResolutionOrderAndReportsTheirSource(@TempDir Path root) throws Exception {
+        Path winget = executable(root.resolve("Microsoft/WinGet/Links/kiro-cli.exe"));
+        Path managed = executable(root.resolve("Managed Applications/Kiro/kiro-cli.exe"));
+        var env = Map.of("LOCALAPPDATA", root.toString(),
+            "PATH", winget.getParent() + ";" + managed.getParent());
+        assertEquals(List.of(new CliExecutable.Match(winget.toString(), "WinGet"),
+                new CliExecutable.Match(managed.toString(), "PATH")),
+            CliExecutable.findAll("kiro-cli", root, env, true));
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     void discoveredWindowsBinaryLaunchesDirectlyFromAPathWithSpaces(@TempDir Path root) throws Exception {
         Path folder = Files.createDirectory(root.resolve("Test CLI install"));
@@ -49,6 +61,7 @@ class CliExecutableTest {
         Path alias = Files.copy(nativeBinary, folder.resolve("test-cli.exe"));
         String found = CliExecutable.discover("test-cli", root, Map.of("PATH", folder.toString()), true);
         assertEquals(alias.toString(), found);
+        assertEquals(alias.toString(), CliExecutable.resolve("\"" + alias + "\"", "test-cli"));
         var launched = new ProcessBuilder(found, "/?").redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD).start();
         try {

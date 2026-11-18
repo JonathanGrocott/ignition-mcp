@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -76,6 +77,34 @@ class ModelProviderTest {
     private static ModelProvider.Settings httpSettings(MockEndpoint server) {
         return new ModelProvider.Settings(ModelProvider.Kind.OPENAI_COMPATIBLE,
             server.url(), "local-model", "", "", "", "");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void testConnectionIdentifiesAFailingHeadlessModeWithoutCopyingCliOutput(@TempDir Path directory) throws Exception {
+        Path executable = directory.resolve("codex executable");
+        Files.writeString(executable, """
+            #!/bin/sh
+            case "$*" in
+              --version) printf 'codex-cli 1.2.3\\n' ;;
+              'login status') printf 'private account details\\n' ;;
+              *' exec '*)
+                cat >/dev/null
+                printf 'error: unexpected argument, private request details\\n' >&2
+                exit 7 ;;
+              *) exit 9 ;;
+            esac
+            """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        var config = new ModelProvider.Settings(ModelProvider.Kind.CODEX_CLI, "", "", "", "",
+            executable.toString(), "");
+        var progress = new ArrayList<String>();
+        var error = assertThrows(IOException.class, () -> ModelProvider.testConnection(config, progress::add));
+        assertTrue(progress.contains("CLI launched. Version 1.2.3."));
+        assertTrue(progress.contains("CLI sign-in check passed."));
+        assertTrue(error.getMessage().contains("exit 7"));
+        assertTrue(error.getMessage().contains("did not recognize a required option"));
+        assertFalse((progress + error.getMessage()).contains("private"));
     }
 
     @Test

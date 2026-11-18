@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Designer Assistant settings fit the current monitor and scroll while keeping OK and Cancel visible.
+- CLI settings show the executable path and discovery source. Advanced settings let users choose another detected install, browse for an executable, or restore automatic lookup.
+- Model connection checks report the CLI version, sign-in probe, and non-interactive reply. Users can copy diagnostics, and a separate Gateway check reports project tool access.
+
 ## 0.5.1
 
 - Added Designer-session access to the existing MCP catalog through explicit Gateway authorization profiles.
