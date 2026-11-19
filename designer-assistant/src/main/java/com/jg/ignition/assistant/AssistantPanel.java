@@ -421,8 +421,7 @@ final class AssistantPanel extends JPanel {
             line(card, body, palette.text(), false);
         } else {
             card.add(new MarkdownReply(body, palette));
-            var copy = textButton(palette, "Copy reply", false);
-            copy.setFont(copy.getFont().deriveFont(copy.getFont().getSize2D() - 1));
+            var copy = iconButton(palette, "Copy reply", Glyph.COPY, false);
             copy.addActionListener(event -> MarkdownReply.copy(copy, body, "Copy reply"));
             card.add(row(copy));
         }

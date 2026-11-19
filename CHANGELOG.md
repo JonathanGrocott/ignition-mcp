@@ -7,6 +7,8 @@
 - Model connection checks report the CLI version, sign-in probe, and non-interactive reply. Users can copy diagnostics, and a separate Gateway check reports project tool access.
 - Designer Assistant renders Markdown headings, emphasis, lists, tables, and documentation links. Code blocks preserve indentation and offer Copy code, and each assistant reply has Copy reply.
 - Chat provides a working indicator and a Latest reply shortcut when reading earlier messages.
+- Reply text uses the Designer font size with compact headings. Copy controls use icons with tooltips and a copied checkmark.
+- Code blocks show their full height, and wheel scrolling over code continues through the conversation.
 
 ## 0.5.1
 

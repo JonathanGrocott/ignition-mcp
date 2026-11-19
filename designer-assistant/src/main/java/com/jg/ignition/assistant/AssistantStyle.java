@@ -69,7 +69,7 @@ final class AssistantStyle {
     }
 
     enum Glyph implements Icon {
-        PLUS, SETTINGS, ATTACH, SEND, REMOVE;
+        PLUS, SETTINGS, ATTACH, SEND, REMOVE, COPY, CHECK;
 
         @Override public int getIconWidth() { return 16; }
         @Override public int getIconHeight() { return 16; }
@@ -114,6 +114,15 @@ final class AssistantStyle {
                     case REMOVE -> {
                         g.drawLine(4, 4, 12, 12);
                         g.drawLine(12, 4, 4, 12);
+                    }
+                    case COPY -> {
+                        g.drawRoundRect(6, 5, 7, 9, 2, 2);
+                        g.drawLine(10, 2, 3, 2);
+                        g.drawLine(3, 2, 3, 11);
+                    }
+                    case CHECK -> {
+                        g.drawLine(3, 8, 6, 11);
+                        g.drawLine(6, 11, 13, 4);
                     }
                 }
             } finally {

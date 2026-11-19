@@ -5,13 +5,16 @@ import org.junit.jupiter.api.Test;
 import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.MouseWheelEvent;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -74,7 +77,8 @@ class MarkdownReplyTest {
             assertFalse(code.getLineWrap());
             assertFalse(code.isEditable());
             assertTrue(children(reply).filter(JButton.class::isInstance).map(JButton.class::cast)
-                .anyMatch(button -> "Copy code".equals(button.getText())));
+                .anyMatch(button -> button.getText().isEmpty() && button.getIcon() != null
+                    && "Copy code".equals(button.getAccessibleContext().getAccessibleName())));
             var prose = children(reply).filter(JEditorPane.class::isInstance).map(JEditorPane.class::cast).toList();
             assertEquals(2, prose.size());
             assertFalse(prose.get(0).isEditable());
@@ -156,6 +160,30 @@ class MarkdownReplyTest {
                 assertEquals(height, body.heightForWidth(340));
                 assertEquals(assignedHeight, documentView.getHeight(), "Measurement must preserve the laid-out view");
             }
+            return null;
+        });
+    }
+
+    @Test
+    void scrollingOverCodeContinuesThroughTheConversation() throws Exception {
+        edt(() -> {
+            var reply = new MarkdownReply("```python\n" + "print 'running'\n".repeat(30) + "```",
+                AssistantStyle.Palette.current());
+            var conversation = new JScrollPane(reply);
+            var code = children(reply).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                .findFirst().orElseThrow();
+            var codeScroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, code);
+            assertEquals(code.getLineCount(), code.getRows(), "The entire code block should be visible vertically");
+            var received = new AtomicReference<MouseWheelEvent>();
+            conversation.addMouseWheelListener(received::set);
+            var wheel = new MouseWheelEvent(codeScroll, MouseWheelEvent.MOUSE_WHEEL,
+                System.currentTimeMillis(), 0, 5, 5, 5, 5, 0, false,
+                MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, -2, -2.5);
+            codeScroll.dispatchEvent(wheel);
+            assertNotNull(received.get(), "The outer conversation must receive scrolling over a code block");
+            assertSame(conversation, received.get().getSource());
+            assertEquals(-2.5, received.get().getPreciseWheelRotation());
+            assertTrue(wheel.isConsumed());
             return null;
         });
     }

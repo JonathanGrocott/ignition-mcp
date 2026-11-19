@@ -25,6 +25,7 @@ import java.awt.Desktop;
 import java.awt.Font;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.MouseWheelEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -92,12 +93,12 @@ final class MarkdownReply extends JPanel {
         };
         Font font = UIManager.getFont("Label.font");
         kit.getStyleSheet().addRule("body { font-family: '" + font.getFamily()
-            + "'; font-size: " + (font.getSize() + 1) + "pt; font-weight: normal; font-style: normal; color: "
+            + "'; font-size: " + font.getSize() + "pt; font-weight: normal; font-style: normal; color: "
             + hex(palette.text()) + "; margin: 0; }");
         kit.getStyleSheet().addRule("p { margin-top: 3px; margin-bottom: 9px; }");
-        kit.getStyleSheet().addRule("h1 { font-size: 155%; margin-top: 12px; margin-bottom: 7px; }");
-        kit.getStyleSheet().addRule("h2 { font-size: 130%; margin-top: 11px; margin-bottom: 6px; }");
-        kit.getStyleSheet().addRule("h3, h4, h5, h6 { font-size: 110%; margin-top: 9px; margin-bottom: 5px; }");
+        kit.getStyleSheet().addRule("h1 { font-size: 120%; margin-top: 10px; margin-bottom: 6px; }");
+        kit.getStyleSheet().addRule("h2 { font-size: 110%; margin-top: 9px; margin-bottom: 5px; }");
+        kit.getStyleSheet().addRule("h3, h4, h5, h6 { font-size: 100%; margin-top: 8px; margin-bottom: 4px; }");
         kit.getStyleSheet().addRule("ul, ol { margin-left: 20px; margin-top: 3px; margin-bottom: 9px; }");
         kit.getStyleSheet().addRule("li { margin-top: 2px; margin-bottom: 3px; }");
         kit.getStyleSheet().addRule("code, pre { font-family: monospace; font-size: 95%; background-color: "
@@ -110,7 +111,7 @@ final class MarkdownReply extends JPanel {
         kit.getStyleSheet().addRule("th { background-color: " + hex(palette.accentBg()) + "; text-align: left; }");
         var body = new Prose();
         body.setEditorKit(kit);
-        body.setFont(font.deriveFont(Font.PLAIN, font.getSize() + 1f));
+        body.setFont(font.deriveFont(Font.PLAIN));
         body.setEditable(false);
         body.setOpaque(false);
         body.setBackground(palette.bg());
@@ -146,7 +147,7 @@ final class MarkdownReply extends JPanel {
         label.setForeground(palette.muted());
         label.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN));
         label.setToolTipText(language.isBlank() ? null : language);
-        var copy = textButton(palette, "Copy code", false);
+        var copy = iconButton(palette, "Copy code", Glyph.COPY, false);
         copy.addActionListener(event -> copy(copy, source, "Copy code"));
         var toolbar = new JPanel(new BorderLayout(4, 0));
         toolbar.setOpaque(false);
@@ -161,14 +162,26 @@ final class MarkdownReply extends JPanel {
         code.setBackground(palette.panel());
         code.setCaretColor(palette.text());
         code.setTabSize(4);
-        code.setRows(Math.min(12, code.getLineCount()));
+        code.setRows(code.getLineCount());
         code.setCaretPosition(0);
         code.getAccessibleContext().setAccessibleName(language.isBlank() ? "Code block" : language + " code block");
         var scroll = new JScrollPane(code);
+        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        scroll.setWheelScrollingEnabled(false);
+        scroll.addMouseWheelListener(event -> {
+            var conversation = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, scroll.getParent());
+            if (conversation != null) {
+                var point = SwingUtilities.convertPoint(scroll, event.getPoint(), conversation);
+                conversation.dispatchEvent(new MouseWheelEvent(conversation, event.getID(), event.getWhen(),
+                    event.getModifiersEx(), point.x, point.y, event.getXOnScreen(), event.getYOnScreen(),
+                    event.getClickCount(), event.isPopupTrigger(), event.getScrollType(),
+                    event.getScrollAmount(), event.getWheelRotation(), event.getPreciseWheelRotation()));
+                event.consume();
+            }
+        });
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getViewport().setBackground(palette.panel());
         scroll.getHorizontalScrollBar().setUnitIncrement(18);
-        scroll.getVerticalScrollBar().setUnitIncrement(18);
         panel.add(scroll, BorderLayout.CENTER);
         add(panel);
         add(Box.createVerticalStrut(9));
@@ -177,10 +190,16 @@ final class MarkdownReply extends JPanel {
     static void copy(JButton button, String source, String label) {
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(source), null);
-            button.setText("Copied");
+            button.setIcon(Glyph.CHECK);
+            button.setDisabledIcon(Glyph.CHECK);
+            button.setToolTipText("Copied");
+            button.getAccessibleContext().setAccessibleName("Copied");
             button.setEnabled(false);
             var reset = new Timer(1500, event -> {
-                button.setText(label);
+                button.setIcon(Glyph.COPY);
+                button.setDisabledIcon(Glyph.COPY);
+                button.setToolTipText(label);
+                button.getAccessibleContext().setAccessibleName(label);
                 button.setEnabled(true);
             });
             reset.setRepeats(false);

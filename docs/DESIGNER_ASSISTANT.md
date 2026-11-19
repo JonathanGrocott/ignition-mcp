@@ -38,7 +38,7 @@ Start with scoped read tools and paths. For a first Perspective test, grant `ign
 
 Press **Enter** to send and **Shift+Enter** for a new line. Drag the handle above the message box to resize it.
 
-Designer Assistant 0.4.9 development builds display formatted replies with headings, lists, tables, and links. Code blocks have language labels and **Copy code** buttons. **Copy reply** copies the original Markdown. Long code lines scroll horizontally, and longer blocks also scroll vertically. When reading earlier messages, **Latest reply ↓** returns to the bottom of the conversation.
+Designer Assistant 0.4.10 development builds display formatted replies with headings, lists, tables, and links at the Designer font size. Code blocks show their full height and have language labels and a copy icon. The copy icon below a reply copies its original Markdown. Hover over either icon for its tooltip. Long code lines scroll horizontally, and mouse-wheel scrolling over code moves the conversation. When reading earlier messages, **Latest reply ↓** returns to the bottom of the conversation.
 
 Choose **New chat** to open a tab. Tabs take their name from the first message. Double-click a tab, use its **Rename chat…** menu, or press **F2** with the tab selected to give it a name. Switch between tabs to return to each conversation, draft, and pending proposal. Model settings are shared across tabs. Chats are kept while Designer is open.
 
