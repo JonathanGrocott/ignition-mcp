@@ -57,7 +57,9 @@ final class TranscriptLayout implements LayoutManager {
         if (child instanceof JEditorPane text) {
             var insets = text.getInsets();
             var view = text.getUI().getRootView(text);
-            view.setSize(Math.max(1, width - insets.left - insets.right), Integer.MAX_VALUE);
+            // Swing can ask for a preferred size before the viewport has a usable width.
+            // Shaping a long HTML reply one pixel at a time can stall the event thread.
+            view.setSize(Math.max(96, width - insets.left - insets.right), Integer.MAX_VALUE);
             return (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
         }
         if (child instanceof Container container) {

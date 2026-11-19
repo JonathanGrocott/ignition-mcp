@@ -118,6 +118,27 @@ class MarkdownReplyTest {
         });
     }
 
+    @Test
+    void longRepliesHaveABoundedInitialLayoutBeforeTheViewportGetsItsWidth() throws Exception {
+        edt(() -> {
+            String text = "The pump’s state → inspect the saved resource and review its tag bindings. ".repeat(140);
+            var reply = new MarkdownReply("## Project overview\n\n" + text, AssistantStyle.Palette.current());
+            var body = children(reply).filter(JEditorPane.class::isInstance).map(JEditorPane.class::cast)
+                .findFirst().orElseThrow();
+            body.getDocument().putProperty("i18n", Boolean.TRUE);
+            body.setText(body.getText());
+            var transcript = new JPanel(new TranscriptLayout());
+            transcript.add(reply);
+            transcript.setSize(0, 1000);
+            transcript.doLayout();
+            assertTrue(reply.getHeight() < 20_000, "Initial measurement must use a usable line width");
+            transcript.setSize(340, 1000);
+            transcript.doLayout();
+            assertTrue(reply.getHeight() > 0);
+            return null;
+        });
+    }
+
     private static Stream<Component> children(Component component) {
         return component instanceof Container parent
             ? Stream.concat(Stream.of(component), Stream.of(parent.getComponents()).flatMap(MarkdownReplyTest::children))
