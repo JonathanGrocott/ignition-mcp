@@ -1,6 +1,6 @@
 plugins { java }
 
-version = "0.4.8"
+version = "0.4.9"
 val designerSdkVersion = "8.3.9"
 val localSdk = providers.gradleProperty("assistantSdkDir")
     .orElse(providers.systemProperty("user.home").map { "$it/.local/share/ignition-sdk/$designerSdkVersion" })
@@ -20,6 +20,8 @@ dependencies {
         compileOnly("com.inductiveautomation.ignitionsdk:ignition-common:$designerSdkVersion")
     }
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.1")
+    implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.4")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")

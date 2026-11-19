@@ -332,8 +332,14 @@ class AssistantAgentTest {
     }
 
     private static boolean hasText(AssistantPanel dock, String value) throws Exception {
-        return edt(() -> components(dock).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
-            .anyMatch(area -> area.getText().contains(value)));
+        return edt(() -> components(dock).filter(javax.swing.text.JTextComponent.class::isInstance)
+            .map(javax.swing.text.JTextComponent.class::cast).anyMatch(area -> {
+                try {
+                    return area.getDocument().getText(0, area.getDocument().getLength()).contains(value);
+                } catch (javax.swing.text.BadLocationException e) {
+                    throw new AssertionError(e);
+                }
+            }));
     }
 
     private static boolean enabled(AssistantPanel dock, String title) throws Exception {

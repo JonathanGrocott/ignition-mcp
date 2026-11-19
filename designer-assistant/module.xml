@@ -13,5 +13,7 @@
     <jar scope="D">jackson-annotations-2.18.1.jar</jar>
     <jar scope="D">jackson-core-2.18.1.jar</jar>
     <jar scope="D">jackson-databind-2.18.1.jar</jar>
+    <jar scope="D">commonmark-0.24.0.jar</jar>
+    <jar scope="D">commonmark-ext-gfm-tables-0.24.0.jar</jar>
   </module>
 </modules>

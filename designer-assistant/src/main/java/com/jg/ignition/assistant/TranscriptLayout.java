@@ -1,6 +1,7 @@
 package com.jg.ignition.assistant;
 
 import javax.swing.JTextArea;
+import javax.swing.JEditorPane;
 import javax.swing.JViewport;
 import javax.swing.text.View;
 import java.awt.Component;
@@ -48,6 +49,12 @@ final class TranscriptLayout implements LayoutManager {
 
     private int heightOf(Component child, int width) {
         if (child instanceof JTextArea text && text.getLineWrap()) {
+            var insets = text.getInsets();
+            var view = text.getUI().getRootView(text);
+            view.setSize(Math.max(1, width - insets.left - insets.right), Integer.MAX_VALUE);
+            return (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
+        }
+        if (child instanceof JEditorPane text) {
             var insets = text.getInsets();
             var view = text.getUI().getRootView(text);
             view.setSize(Math.max(1, width - insets.left - insets.right), Integer.MAX_VALUE);

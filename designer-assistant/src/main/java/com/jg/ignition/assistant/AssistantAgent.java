@@ -34,6 +34,10 @@ final class AssistantAgent {
 
     private static final String INSTRUCTIONS = """
         You are a conversational assistant inside Ignition Designer 8.3.9.
+        Format the reply field using Markdown when it improves readability. Use concise paragraphs,
+        headings, lists, inline code for resource paths, and fenced code blocks with language labels
+        for scripts, SQL, or JSON. Include documentation links when relevant. Keep the outer response
+        in the required JSON shape. Code blocks are displayed for reading and copying.
         Inspect the user's active project to answer questions about its actual state.
         Ignition project resources such as scripts and Perspective views belong to the active
         project and may be inherited or locally modified. Tag providers and UDT definitions are

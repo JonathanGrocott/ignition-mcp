@@ -38,6 +38,8 @@ final class AssistantPanel extends JPanel {
     private final JScrollPane messages = new JScrollPane(cards);
     private final JTextArea prompt = new Composer();
     private final JLabel status = new JLabel();
+    private final JProgressBar activity = new JProgressBar();
+    private final JPanel statusRow = new JPanel(new BorderLayout(6, 0));
     private final List<ModelProvider.Message> history = new ArrayList<>();
 
     private final Supplier<AssistantSettings> settings;
@@ -72,6 +74,16 @@ final class AssistantPanel extends JPanel {
         messages.getVerticalScrollBar().setUnitIncrement(18);
         messages.getAccessibleContext().setAccessibleName("Designer Assistant conversation");
         messages.setMinimumSize(new Dimension(0, 48));
+        var latest = textButton(palette, "Latest reply ↓", false);
+        latest.addActionListener(event -> scrollToEnd());
+        var latestRow = row(FlowLayout.CENTER, latest);
+        latestRow.setVisible(false);
+        messages.getVerticalScrollBar().addAdjustmentListener(event -> latestRow.setVisible(!nearEnd()));
+        var transcript = new JPanel(new BorderLayout());
+        transcript.setOpaque(false);
+        transcript.add(messages, BorderLayout.CENTER);
+        transcript.add(latestRow, BorderLayout.SOUTH);
+        transcript.setMinimumSize(new Dimension(0, 48));
 
         prompt.setLineWrap(true);
         prompt.setWrapStyleWord(true);
@@ -131,11 +143,20 @@ final class AssistantPanel extends JPanel {
         status.setBorder(new EmptyBorder(0, 4, 2, 4));
         status.getAccessibleContext().setAccessibleName("Assistant status");
         status.setVisible(false);
+        activity.setPreferredSize(new Dimension(20, 6));
+        activity.setBorderPainted(false);
+        activity.setForeground(palette.accent());
+        activity.setBackground(palette.bg());
+        activity.getAccessibleContext().setAccessibleName("Assistant working");
+        statusRow.setOpaque(false);
+        statusRow.add(activity, BorderLayout.WEST);
+        statusRow.add(status, BorderLayout.CENTER);
+        statusRow.setVisible(false);
         var compose = new JPanel(new BorderLayout(0, 2));
         compose.setOpaque(false);
-        compose.add(status, BorderLayout.NORTH);
+        compose.add(statusRow, BorderLayout.NORTH);
         compose.add(composer, BorderLayout.CENTER);
-        add(new ComposerSplitPane(messages, compose, palette), BorderLayout.CENTER);
+        add(new ComposerSplitPane(transcript, compose, palette), BorderLayout.CENTER);
 
         send.addActionListener(event -> send());
         permission.addActionListener(event -> updatePermissionHint());
@@ -396,7 +417,15 @@ final class AssistantPanel extends JPanel {
             card.getAccessibleContext().setAccessibleName("Assistant message");
             card.setBorder(new EmptyBorder(5, 3, 5, 3));
         }
-        line(card, body, palette.text(), false);
+        if (fromUser) {
+            line(card, body, palette.text(), false);
+        } else {
+            card.add(new MarkdownReply(body, palette));
+            var copy = textButton(palette, "Copy reply", false);
+            copy.setFont(copy.getFont().deriveFont(copy.getFont().getSize2D() - 1));
+            copy.addActionListener(event -> MarkdownReply.copy(copy, body, "Copy reply"));
+            card.add(row(copy));
+        }
         if (fromUser) {
             card.getAccessibleContext().setAccessibleName("Your message");
             var inset = new JPanel(new TranscriptLayout());
@@ -466,6 +495,9 @@ final class AssistantPanel extends JPanel {
     private void setStatus(String text) {
         status.setText(text);
         status.setVisible(!text.isBlank());
+        statusRow.setVisible(!text.isBlank());
+        activity.setVisible(worker != null && !closed);
+        activity.setIndeterminate(worker != null && !closed);
         status.setToolTipText(text.isBlank() ? null : text);
         status.getAccessibleContext().setAccessibleDescription(text);
     }

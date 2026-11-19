@@ -5,6 +5,8 @@
 - Designer Assistant settings fit the current monitor and scroll while keeping OK and Cancel visible.
 - CLI settings show the executable path and discovery source. Advanced settings let users choose another detected install, browse for an executable, or restore automatic lookup.
 - Model connection checks report the CLI version, sign-in probe, and non-interactive reply. Users can copy diagnostics, and a separate Gateway check reports project tool access.
+- Designer Assistant renders Markdown headings, emphasis, lists, tables, and documentation links. Code blocks preserve indentation and offer Copy code, and each assistant reply has Copy reply.
+- Chat provides a working indicator and a Latest reply shortcut when reading earlier messages.
 
 ## 0.5.1
 

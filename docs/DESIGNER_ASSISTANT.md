@@ -38,6 +38,8 @@ Start with scoped read tools and paths. For a first Perspective test, grant `ign
 
 Press **Enter** to send and **Shift+Enter** for a new line. Drag the handle above the message box to resize it.
 
+Designer Assistant 0.4.9 development builds display formatted replies with headings, lists, tables, and links. Code blocks have language labels and **Copy code** buttons. **Copy reply** copies the original Markdown. Long code lines scroll horizontally, and longer blocks also scroll vertically. When reading earlier messages, **Latest reply ↓** returns to the bottom of the conversation.
+
 Choose **New chat** to open a tab. Tabs take their name from the first message. Double-click a tab, use its **Rename chat…** menu, or press **F2** with the tab selected to give it a name. Switch between tabs to return to each conversation, draft, and pending proposal. Model settings are shared across tabs. Chats are kept while Designer is open.
 
 Open a Perspective view, Project Library script, or Named Query and ask “What does this do?” The dock shows the active editor, and the assistant receives its exact path when you send the message. In Perspective, select a component and ask “What does this component do?” The assistant also receives the selected Project Browser resources and visible Tag Browser selections. It can inspect the referenced resource using the existing tools. Edits still pending inside an editor may be missing from resource reads.
