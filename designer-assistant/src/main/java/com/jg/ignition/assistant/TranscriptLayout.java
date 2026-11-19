@@ -1,7 +1,6 @@
 package com.jg.ignition.assistant;
 
 import javax.swing.JTextArea;
-import javax.swing.JEditorPane;
 import javax.swing.JViewport;
 import javax.swing.text.View;
 import java.awt.Component;
@@ -54,13 +53,8 @@ final class TranscriptLayout implements LayoutManager {
             view.setSize(Math.max(1, width - insets.left - insets.right), Integer.MAX_VALUE);
             return (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
         }
-        if (child instanceof JEditorPane text) {
-            var insets = text.getInsets();
-            var view = text.getUI().getRootView(text);
-            // Swing can ask for a preferred size before the viewport has a usable width.
-            // Shaping a long HTML reply one pixel at a time can stall the event thread.
-            view.setSize(Math.max(96, width - insets.left - insets.right), Integer.MAX_VALUE);
-            return (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
+        if (child instanceof MarkdownReply.Prose text) {
+            return text.heightForWidth(width);
         }
         if (child instanceof Container container) {
             if (container.getLayout() instanceof TranscriptLayout) {

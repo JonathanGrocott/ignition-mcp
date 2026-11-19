@@ -139,6 +139,27 @@ class MarkdownReplyTest {
         });
     }
 
+    @Test
+    void repeatingAHeightMeasurementDoesNotResetTheLaidOutHtmlView() throws Exception {
+        edt(() -> {
+            var reply = new MarkdownReply("## Status\n\nThe pump’s state → review its saved tag bindings. ".repeat(20),
+                AssistantStyle.Palette.current());
+            var body = children(reply).filter(MarkdownReply.Prose.class::isInstance)
+                .map(MarkdownReply.Prose.class::cast).findFirst().orElseThrow();
+            int height = body.heightForWidth(340);
+            body.setSize(340, height);
+            var root = body.getUI().getRootView(body);
+            root.setSize(340, height);
+            var documentView = (javax.swing.text.BoxView) root.getView(0);
+            int assignedHeight = documentView.getHeight();
+            for (int i = 0; i < 20; i++) {
+                assertEquals(height, body.heightForWidth(340));
+                assertEquals(assignedHeight, documentView.getHeight(), "Measurement must preserve the laid-out view");
+            }
+            return null;
+        });
+    }
+
     private static Stream<Component> children(Component component) {
         return component instanceof Container parent
             ? Stream.concat(Stream.of(component), Stream.of(parent.getComponents()).flatMap(MarkdownReplyTest::children))

@@ -108,7 +108,7 @@ final class MarkdownReply extends JPanel {
         kit.getStyleSheet().addRule("table { border-spacing: 0; margin-top: 5px; margin-bottom: 10px; }");
         kit.getStyleSheet().addRule("td, th { border: 1px solid " + hex(palette.border()) + "; padding: 5px; }");
         kit.getStyleSheet().addRule("th { background-color: " + hex(palette.accentBg()) + "; text-align: left; }");
-        var body = new JEditorPane();
+        var body = new Prose();
         body.setEditorKit(kit);
         body.setFont(font.deriveFont(Font.PLAIN, font.getSize() + 1f));
         body.setEditable(false);
@@ -192,6 +192,34 @@ final class MarkdownReply extends JPanel {
 
     private static String hex(Color color) {
         return String.format("#%06x", color.getRGB() & 0xffffff);
+    }
+
+    static final class Prose extends JEditorPane {
+        private int measuredWidth = -1;
+        private int measuredHeight;
+
+        int heightForWidth(int availableWidth) {
+            var insets = getInsets();
+            // Ignore transient zero-width layout requests while the dock is being initialized.
+            int width = Math.max(96, availableWidth - insets.left - insets.right);
+            if (width != measuredWidth) {
+                var root = getUI().getRootView(this);
+                root.setSize(width, Integer.MAX_VALUE);
+                measuredHeight = (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
+                measuredWidth = width;
+            }
+            return measuredHeight;
+        }
+
+        @Override public void setText(String text) {
+            measuredWidth = -1;
+            super.setText(text);
+        }
+
+        @Override public void updateUI() {
+            measuredWidth = -1;
+            super.updateUI();
+        }
     }
 
     private static final class LinkRenderer implements NodeRenderer {
