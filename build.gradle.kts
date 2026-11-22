@@ -7,7 +7,8 @@ plugins {
 val minIgnitionVersion by extra("8.3.9")
 // CI also compiles and tests against newer 8.3.x SDKs: ./gradlew -PignitionSdkVersion=8.3.10 test
 val sdkVersion by extra(providers.gradleProperty("ignitionSdkVersion").getOrElse(minIgnitionVersion))
-val moduleVersion = "0.5.1"
+// One version for both modules. They are released, installed and checked as a pair.
+val moduleVersion = "0.6.0"
 
 group = "com.jg.ignition"
 version = moduleVersion

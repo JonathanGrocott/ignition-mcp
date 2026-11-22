@@ -1,6 +1,5 @@
 plugins { java }
 
-version = "0.4.7"
 val designerSdkVersion = rootProject.extra["sdkVersion"].toString()
 val minIgnitionVersion = rootProject.extra["minIgnitionVersion"].toString()
 val localSdk = providers.gradleProperty("assistantSdkDir")
@@ -27,6 +26,13 @@ dependencies {
 }
 
 tasks.test { useJUnitPlatform() }
+
+tasks.processResources {
+    inputs.property("moduleVersion", project.version.toString())
+    filesMatching("designer-assistant-version.properties") {
+        expand("moduleVersion" to project.version.toString())
+    }
+}
 
 val descriptorValues = mapOf("version" to version.toString(), "minIgnition" to minIgnitionVersion)
 val moduleDescriptor by tasks.registering(Copy::class) {

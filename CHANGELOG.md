@@ -7,6 +7,9 @@
 - CI compiles and tests both modules against the 8.3.9, 8.3.10 and newest published 8.3.x SDKs. It runs weekly so new patches are checked automatically.
 - CI uploads both development modules as one `dev-signed-modules-not-for-release` artifact, signed with a per-run development certificate. Only the release workflow signs with the release certificate.
 - Builds no longer use Inductive Automation's beta repository.
+- Ignition MCP and Designer Assistant now share one version number, starting at 0.6.0. Ignition MCP still works on its own; Designer Assistant remains optional.
+- Designer Assistant checks that the Gateway runs Ignition MCP of the same version. When it is missing or from another release, the dock shows a warning and the assistant reports it instead of a generic Gateway error.
+- Gradle downloads a JDK 17 toolchain when none is installed, so a newer default JDK on PATH no longer needs a manual toolchain path.
 
 ## 0.5.1
 

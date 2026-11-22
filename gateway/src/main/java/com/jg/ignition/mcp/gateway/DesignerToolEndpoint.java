@@ -7,6 +7,7 @@ import com.inductiveautomation.ignition.gateway.clientcomm.ClientReqSession;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
 import com.inductiveautomation.ignition.gateway.rpc.RpcDelegate;
 import com.jg.ignition.mcp.bridge.DesignerMcpRpc;
+import com.jg.ignition.mcp.common.McpConstants;
 import com.jg.ignition.mcp.common.ToolDefinition;
 
 import java.io.IOException;
@@ -35,6 +36,11 @@ public final class DesignerToolEndpoint implements DesignerMcpRpc {
         this.dispatcher = dispatcher;
         this.audit = audit;
         this.policy = new SafetyPolicyEngine(config, true);
+    }
+
+    @Override
+    public String moduleVersion() {
+        return McpConstants.MODULE_VERSION;
     }
 
     @Override

@@ -19,6 +19,7 @@ final class AssistantDock extends JPanel {
     private final Palette palette = Palette.current();
     private final JLabel modelLabel = new JLabel();
     private final JLabel contextLabel = new JLabel();
+    private final JTextArea pairWarning = new JTextArea();
     private final Timer contextTimer = new Timer(500, event -> showContext());
     private final JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
     private AssistantSettings settings;
@@ -50,8 +51,22 @@ final class AssistantDock extends JPanel {
         contextLabel.getAccessibleContext().setAccessibleName("Current Designer context");
         contextLabel.setVisible(false);
         header.add(contextLabel, BorderLayout.SOUTH);
-        add(header, BorderLayout.NORTH);
+        pairWarning.setEditable(false);
+        pairWarning.setFocusable(false);
+        pairWarning.setLineWrap(true);
+        pairWarning.setWrapStyleWord(true);
+        pairWarning.setForeground(palette.amber());
+        pairWarning.setBackground(palette.amberBg());
+        pairWarning.setBorder(new EmptyBorder(4, 6, 4, 6));
+        pairWarning.getAccessibleContext().setAccessibleName("Module version warning");
+        pairWarning.setVisible(false);
+        var top = new JPanel(new BorderLayout(0, 4));
+        top.setOpaque(false);
+        top.add(header, BorderLayout.NORTH);
+        top.add(pairWarning, BorderLayout.SOUTH);
+        add(top, BorderLayout.NORTH);
         showProvider();
+        checkModulePair();
 
         tabs.setOpaque(false);
         tabs.getAccessibleContext().setAccessibleName("Assistant chats");
@@ -67,6 +82,29 @@ final class AssistantDock extends JPanel {
         });
         add(tabs, BorderLayout.CENTER);
         addChat(false);
+    }
+
+    /** Warns once at startup, off the Swing thread, when the Gateway module is not from the same release. */
+    private void checkModulePair() {
+        if (tools == null) {
+            return;
+        }
+        var check = new Thread(() -> {
+            try {
+                tools.checkModulePair();
+            } catch (java.io.IOException e) {
+                SwingUtilities.invokeLater(() -> showPairWarning(e.getMessage()));
+            }
+        }, "designer-assistant-module-check");
+        check.setDaemon(true);
+        check.start();
+    }
+
+    void showPairWarning(String message) {
+        pairWarning.setText(message);
+        pairWarning.getAccessibleContext().setAccessibleDescription(message);
+        pairWarning.setVisible(true);
+        revalidate();
     }
 
     private void showProvider() {

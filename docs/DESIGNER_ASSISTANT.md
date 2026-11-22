@@ -82,6 +82,7 @@ The CLI adapters use short-lived calls. Designer Assistant manages the conversat
 | Symptom | Check |
 | --- | --- |
 | The dock is missing | Verify both modules are active on the same Gateway, running 8.3.9 or later. Complete any pending restart, reopen Designer, and check **View → Panels**. |
+| The dock shows a module version warning | From 0.6.0, both modules share one version. Install Ignition MCP and Designer Assistant from the same release, then reopen Designer. Designer Assistant can't use Gateway tools until they match. |
 | The connection test fails | For a CLI, check sign-in in a terminal on the Designer workstation. Use **Browse…** if lookup fails. For HTTP, verify the full endpoint, model or deployment, and credential. |
 | Chat works but Gateway actions are unavailable | Check the selected Gateway, the saved `designer:<username>` profile, and its tool and target grants. Model connection and Gateway authorization are separate. |
 | A proposal cannot be applied | Check the Gateway write mode, target grants, and any unsaved Designer edits. If a stored plan expired, ask for a fresh preview. |
@@ -91,7 +92,7 @@ The CLI adapters use short-lived calls. Designer Assistant manages the conversat
 
 See [Publishing signed modules](RELEASING.md) for development signing, release verification, and distribution.
 
-Use JDK 17. The build uses the 8.3.9 Ignition SDK by default; add `-PignitionSdkVersion=8.3.10` to compile and test against a newer 8.3.x SDK. Gradle accepts an existing SDK tree with `-PassistantSdkDir=/path/to/sdk` containing `core/designer`, `core/client`, and `core/common`.
+Gradle compiles with a JDK 17 toolchain, so the JDK on your PATH can be newer. When no JDK 17 is detected, Gradle downloads one. The build uses the 8.3.9 Ignition SDK by default; add `-PignitionSdkVersion=8.3.10` to compile and test against a newer 8.3.x SDK. Gradle accepts an existing SDK tree with `-PassistantSdkDir=/path/to/sdk` containing `core/designer`, `core/client`, and `core/common`.
 
 ```sh
 ./gradlew test :designer-assistant:zipModule verifyModulePackage

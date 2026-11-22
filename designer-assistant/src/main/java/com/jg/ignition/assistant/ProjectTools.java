@@ -24,13 +24,39 @@ final class ProjectTools {
     static final String DEFINITIONS = "ignition.tags.definition.write";
     private static final int MAX_IMPORT_BYTES = 2_097_152;
     private static final int MAX_JSON_ATTACHMENT_BYTES = 4_194_304;
+    static final String VERSION = loadVersion();
     private final DesignerMcpRpc rpc;
+    private volatile boolean pairConfirmed;
 
     ProjectTools(DesignerMcpRpc rpc) {
         this.rpc = rpc;
     }
 
+    /**
+     * Confirms the Gateway runs the Ignition MCP module from the same release as this Designer Assistant.
+     * A matching result is remembered; a failure is checked again on the next call.
+     */
+    void checkModulePair() throws IOException {
+        if (pairConfirmed) {
+            return;
+        }
+        String gatewayVersion;
+        try {
+            gatewayVersion = rpc.moduleVersion();
+        } catch (Exception e) {
+            throw new IOException("Designer Assistant " + VERSION + " needs Ignition MCP " + VERSION
+                + " on this Gateway. The Ignition MCP module is missing, not running, or older than " + VERSION
+                + ". Install both modules from the same release.", e);
+        }
+        if (!VERSION.equals(gatewayVersion)) {
+            throw new IOException("Designer Assistant " + VERSION + " needs Ignition MCP " + VERSION
+                + ", but this Gateway has Ignition MCP " + gatewayVersion + ". Install both modules from the same release.");
+        }
+        pairConfirmed = true;
+    }
+
     Map<String, Tool> catalog() throws IOException, InterruptedException {
+        checkModulePair();
         try {
             var catalog = new LinkedHashMap<String, Tool>();
             for (JsonNode entry : JSON.readTree(rpc.tools())) {
@@ -60,6 +86,18 @@ final class ProjectTools {
             throw e;
         } catch (Exception e) {
             throw new IOException("The Gateway could not confirm the action. Check the current state before retrying.", e);
+        }
+    }
+
+    private static String loadVersion() {
+        try (InputStream stream = ProjectTools.class.getResourceAsStream("/designer-assistant-version.properties")) {
+            var properties = new java.util.Properties();
+            if (stream != null) {
+                properties.load(stream);
+            }
+            return properties.getProperty("moduleVersion", "unknown");
+        } catch (IOException e) {
+            return "unknown";
         }
     }
 

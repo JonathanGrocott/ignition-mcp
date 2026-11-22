@@ -31,7 +31,8 @@ jobs:
         id: versions
         run: |
           gateway=$(sed -n 's/^val moduleVersion = "\([^"]*\)"$/\1/p' build.gradle.kts)
-          designer=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' designer-assistant/build.gradle.kts)
+          # Both modules share moduleVersion. verify-signed-module.py checks each packaged version below.
+          designer="$gateway"
           min_ignition=$(sed -n 's/^val minIgnitionVersion by extra("\([^"]*\)")$/\1/p' build.gradle.kts)
           [[ "$gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$designer" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$min_ignition" =~ ^8\.3\.[0-9]+$ ]]
           if [[ "$GITHUB_REF_NAME" != "v$gateway" ]]; then
@@ -135,13 +136,13 @@ jobs:
           fi
           docs="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA"
           {
-            printf 'Install Ignition MCP **%s** for Gateway tools and external MCP clients.\n\n' "$GATEWAY_VERSION"
+            printf 'Install Ignition MCP **%s** on its own for Gateway tools and external MCP clients.\n\n' "$GATEWAY_VERSION"
             printf 'Both modules require Ignition **%s** or a later 8.3.x release.\n\n' "$MIN_IGNITION"
-            printf 'For docked chat in Ignition Designer, install **both** Ignition MCP **%s** and Designer Assistant **%s** on the same Gateway.\n\n' "$GATEWAY_VERSION" "$DESIGNER_VERSION"
+            printf 'Designer Assistant is optional. It adds docked chat in Ignition Designer and needs Ignition MCP **%s** on the same Gateway. Install both modules from this release.\n\n' "$GATEWAY_VERSION"
             printf 'Verify each module against its accompanying SHA-256 file. The signing certificate SHA-256 fingerprint is `%s`.\n\n' "$RELEASE_SIGNER_SHA256"
             printf '[Designer Assistant setup](%s/docs/DESIGNER_ASSISTANT.md) · [Gateway setup](%s/docs/USER_GUIDE.md) · [Changelog](%s/CHANGELOG.md)\n' "$docs" "$docs" "$docs"
           } > release-notes.md
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
-            --title "Ignition MCP $GATEWAY_VERSION and Designer Assistant $DESIGNER_VERSION" \
+            --title "Ignition MCP $GATEWAY_VERSION (with optional Designer Assistant)" \
             --notes-file release-notes.md release-assets/ignition-mcp.modl release-assets/ignition-mcp.modl.sha256 \
             release-assets/ignition-designer-assistant.modl release-assets/ignition-designer-assistant.modl.sha256
