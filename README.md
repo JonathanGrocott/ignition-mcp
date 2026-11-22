@@ -1,6 +1,6 @@
 # Ignition MCP
 
-Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Designer Assistant adds a chat dock to Ignition Designer 8.3.9 and uses the Gateway module for authorized project tools.
+Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Designer Assistant adds a chat dock to Ignition Designer 8.3.9 or later 8.3.x releases and uses the Gateway module for authorized project tools.
 
 | Module | Install it for |
 |---|---|
@@ -77,4 +77,4 @@ Branch CI produces development-signed artifacts for both modules. See the [relea
 
 ## Supported and unverified boundaries
 
-The code compiles against SDK 8.3.3; selected native integrations and the UI were exercised on Gateway 8.3.9. All 42 tools passed local fixture acceptance against the final signed 0.4.0 artifact, including native binary pipeline configuration readback. These results do not qualify every Ignition patch, custom pipeline body codec, production workload or browser. Reference search is literal rather than a complete dependency resolver, and source readback verifies saved content rather than Python execution or notification delivery. See the validation summary and [changelog](CHANGELOG.md).
+Both modules require Ignition 8.3.9 or later 8.3.x. They compile against the 8.3.9 SDK, and CI also compiles and tests them against 8.3.10 and the newest published 8.3.x SDK. Selected native integrations and the UI were exercised on Gateway 8.3.9. All 42 tools passed local fixture acceptance against the final signed 0.4.0 artifact, including native binary pipeline configuration readback. These results do not qualify every Ignition patch, custom pipeline body codec, production workload or browser. Reference search is literal rather than a complete dependency resolver, and source readback verifies saved content rather than Python execution or notification delivery. See the validation summary and [changelog](CHANGELOG.md).

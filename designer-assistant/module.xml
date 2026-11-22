@@ -5,7 +5,7 @@
     <id>com.jg.ignition.designerassistant</id>
     <version>${version}</version>
     <description>Project-aware Designer chat with reviewed and automatic changes</description>
-    <requiredIgnitionVersion>${sdk}</requiredIgnitionVersion>
+    <requiredIgnitionVersion>${minIgnition}</requiredIgnitionVersion>
     <requiredFrameworkVersion>8</requiredFrameworkVersion>
     <freeModule>true</freeModule>
     <hook scope="D">com.jg.ignition.assistant.DesignerAssistantHook</hook>

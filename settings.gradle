@@ -8,9 +8,6 @@ pluginManagement {
             url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-releases/")
         }
         maven {
-            url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-beta")
-        }
-        maven {
             url = uri("https://nexus.inductiveautomation.com/repository/public")
         }
     }
@@ -21,9 +18,6 @@ dependencyResolutionManagement {
         maven {
             name = "inductiveautomation-releases"
             url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-releases/")
-        }
-        maven {
-            url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-beta")
         }
         maven {
             url = uri("https://nexus.inductiveautomation.com/repository/public")

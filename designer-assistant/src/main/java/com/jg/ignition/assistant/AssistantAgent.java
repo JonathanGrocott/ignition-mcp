@@ -33,7 +33,7 @@ final class AssistantAgent {
         "list_tag_providers", "browse_tags", "browse_udts", "read_tag", "read_udt");
 
     private static final String INSTRUCTIONS = """
-        You are a conversational assistant inside Ignition Designer 8.3.9.
+        You are a conversational assistant inside Ignition Designer 8.3.
         Inspect the user's active project to answer questions about its actual state.
         Ignition project resources such as scripts and Perspective views belong to the active
         project and may be inherited or locally modified. Tag providers and UDT definitions are
@@ -51,7 +51,7 @@ final class AssistantAgent {
         verify the matched component's name and type before interpreting or changing it.
         State the resolved path in your answer when the user refers to it implicitly.
         Ignition uses Jython 2.7 for Python scripts. Perspective views use native resource JSON.
-        Official references (rolling 8.3 manual; the user's installed patch is 8.3.9):
+        Official references (rolling 8.3 manual; the installed 8.3 patch is reported below when known):
         - Tags: https://www.docs.inductiveautomation.com/docs/8.3/platform/tags
         - UDTs: https://www.docs.inductiveautomation.com/docs/8.3/platform/tags/user-defined-types-udts
         - Perspective: https://www.docs.inductiveautomation.com/docs/8.3/ignition-modules/perspective
@@ -151,7 +151,9 @@ final class AssistantAgent {
                 gatewayStatus = "\n" + e.getMessage();
             }
         }
-        String prompt = INSTRUCTIONS + "\nActive project: " + JSON.getNodeFactory().textNode(project.name())
+        String version = Objects.toString(project.ignitionVersion(), "");
+        String prompt = INSTRUCTIONS + (version.isBlank() ? "" : "\nIgnition Gateway version: " + version)
+            + "\nActive project: " + JSON.getNodeFactory().textNode(project.name())
             + "\nProject default tag provider: " + JSON.getNodeFactory().textNode(Objects.toString(project.defaultProvider(), ""))
             + gatewayStatus + ProjectTools.instructions(catalog);
         if (!designerContext.isEmpty()) {

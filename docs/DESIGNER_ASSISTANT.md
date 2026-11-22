@@ -1,12 +1,12 @@
 # Designer Assistant 0.4.7
 
-Designer Assistant adds a chat dock to **Ignition Designer 8.3.9**. Open a project and ask about its Perspective views, scripts, Named Queries, tags, UDTs, or other resources. You can also ask for changes and review them before applying them.
+Designer Assistant adds a chat dock to **Ignition Designer 8.3.9 or later 8.3.x**. Open a project and ask about its Perspective views, scripts, Named Queries, tags, UDTs, or other resources. You can also ask for changes and review them before applying them.
 
 Designer connects to the model provider from the workstation. For Gateway-backed actions, the dock uses the signed-in Designer session and discovers the tools authorized for that user in Ignition MCP. It also uses native Designer APIs for working-copy inspection and basic UDT creation. Model credentials are configured on the workstation. Gateway authorization is configured by a Gateway administrator.
 
 ## Download and install
 
-Use the matching pair on an Ignition **8.3.9** test Gateway.
+Use the matching pair on an Ignition **8.3.9 or later 8.3.x** test Gateway.
 
 | File | Version | Scope |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ The CLI adapters use short-lived calls. Designer Assistant manages the conversat
 
 | Symptom | Check |
 | --- | --- |
-| The dock is missing | Verify both modules are active on the same 8.3.9 Gateway. Complete any pending restart, reopen Designer, and check **View → Panels**. |
+| The dock is missing | Verify both modules are active on the same Gateway, running 8.3.9 or later. Complete any pending restart, reopen Designer, and check **View → Panels**. |
 | The connection test fails | For a CLI, check sign-in in a terminal on the Designer workstation. Use **Browse…** if lookup fails. For HTTP, verify the full endpoint, model or deployment, and credential. |
 | Chat works but Gateway actions are unavailable | Check the selected Gateway, the saved `designer:<username>` profile, and its tool and target grants. Model connection and Gateway authorization are separate. |
 | A proposal cannot be applied | Check the Gateway write mode, target grants, and any unsaved Designer edits. If a stored plan expired, ask for a fresh preview. |
@@ -91,7 +91,7 @@ The CLI adapters use short-lived calls. Designer Assistant manages the conversat
 
 See [Publishing signed modules](RELEASING.md) for development signing, release verification, and distribution.
 
-Use JDK 17 and the 8.3.9 Ignition SDK. Gradle accepts an existing SDK tree with `-PassistantSdkDir=/path/to/sdk` containing `core/designer`, `core/client`, and `core/common`.
+Use JDK 17. The build uses the 8.3.9 Ignition SDK by default; add `-PignitionSdkVersion=8.3.10` to compile and test against a newer 8.3.x SDK. Gradle accepts an existing SDK tree with `-PassistantSdkDir=/path/to/sdk` containing `core/designer`, `core/client`, and `core/common`.
 
 ```sh
 ./gradlew test :designer-assistant:zipModule verifyModulePackage
@@ -102,9 +102,9 @@ MODULE_OUT="$PWD/designer-assistant/build/ignition-designer-assistant.modl" \
 ./scripts/sign-module.sh
 ```
 
-The tests exercise the Gateway session and profile controls, catalog coverage, script review and auto-apply, batch dry-run enforcement, and the existing Designer keyboard and UDT workflows. To test end to end, use an isolated 8.3.9 Gateway, sign in to its Designer, and create a test script and Perspective view. Confirm each review-mode resource is absent before approval and appears after Gateway readback. Repeat with a different test path in auto-apply mode.
+The tests exercise the Gateway session and profile controls, catalog coverage, script review and auto-apply, batch dry-run enforcement, and the existing Designer keyboard and UDT workflows. To test end to end, use an isolated 8.3.9 or later 8.3.x Gateway, sign in to its Designer, and create a test script and Perspective view. Confirm each review-mode resource is absent before approval and appears after Gateway readback. Repeat with a different test path in auto-apply mode.
 
-For the optional Gateway harness for simple UDTs, use a private JSON file with `gateway`, `project`, and `token`, a loopback 8.3.9 test Gateway with a project prefixed `DesignerAssistantQA`, and a compatible test model on port 8103. Seed the test folders `[default]_types_/Packaging/Line 1` and `[default]_types_/Utilities/Cooling`. Give the test token read access to the fixture's project resources and tag folders, plus tag-definition write access to those folders.
+For the optional Gateway harness for simple UDTs, use a private JSON file with `gateway`, `project`, and `token`, a loopback 8.3.9 or later test Gateway with a project prefixed `DesignerAssistantQA`, and a compatible test model on port 8103. Seed the test folders `[default]_types_/Packaging/Line 1` and `[default]_types_/Utilities/Cooling`. Give the test token read access to the fixture's project resources and tag folders, plus tag-definition write access to those folders.
 
 ```sh
 DESIGNER_ASSISTANT_QA_CONFIG=/private/path/credentials.json \

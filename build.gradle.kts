@@ -2,7 +2,11 @@ plugins {
     id("io.ia.sdk.modl") version("0.1.1")
 }
 
-val sdkVersion by extra("8.3.3")
+// Oldest supported Ignition 8.3 patch. Both modules declare it as their minimum and compile
+// against it by default, so they cannot depend on APIs added in later 8.3.x releases.
+val minIgnitionVersion by extra("8.3.9")
+// CI also compiles and tests against newer 8.3.x SDKs: ./gradlew -PignitionSdkVersion=8.3.10 test
+val sdkVersion by extra(providers.gradleProperty("ignitionSdkVersion").getOrElse(minIgnitionVersion))
 val moduleVersion = "0.5.1"
 
 group = "com.jg.ignition"
@@ -19,7 +23,7 @@ ignitionModule {
     fileName.set("ignition-mcp")
     moduleVersion.set("${project.version}")
     moduleDescription.set("Gateway-hosted MCP server for Ignition 8.3")
-    requiredIgnitionVersion.set("8.3.0")
+    requiredIgnitionVersion.set(minIgnitionVersion)
 
     projectScopes.putAll(
         mapOf(
