@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-11-22)
 
 - Both modules require Ignition 8.3.9 and support later 8.3.x releases, including 8.3.10. The Gateway module previously compiled against SDK 8.3.3 and declared 8.3.0 as its minimum.
 - Designer Assistant reports the running Gateway version to the model and in `project_overview`, instead of assuming 8.3.9.

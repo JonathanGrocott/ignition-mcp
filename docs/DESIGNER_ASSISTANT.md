@@ -1,4 +1,4 @@
-# Designer Assistant 0.4.7
+# Designer Assistant 0.6.0
 
 Designer Assistant adds a chat dock to **Ignition Designer 8.3.9 or later 8.3.x**. Open a project and ask about its Perspective views, scripts, Named Queries, tags, UDTs, or other resources. You can also ask for changes and review them before applying them.
 
@@ -6,14 +6,14 @@ Designer connects to the model provider from the workstation. For Gateway-backed
 
 ## Download and install
 
-Use the matching pair on an Ignition **8.3.9 or later 8.3.x** test Gateway.
+Designer Assistant is optional and needs Ignition MCP of the same version. Use the matching pair on an Ignition **8.3.9 or later 8.3.x** test Gateway.
 
 | File | Version | Scope |
 | --- | --- | --- |
-| `ignition-mcp.modl` | **0.5.1** | Gateway tools and access configuration |
-| `ignition-designer-assistant.modl` | **0.4.7** | Designer chat dock and local model connections |
+| `ignition-mcp.modl` | **0.6.0** | Gateway tools and access configuration |
+| `ignition-designer-assistant.modl` | **0.6.0** | Designer chat dock and local model connections |
 
-Download both `.modl` files and their `.sha256` files from the [Ignition MCP 0.5.1 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.5.1). Both modules use the same signing certificate as the 0.5.0 release.
+Download both `.modl` files and their `.sha256` files from the [Ignition MCP 0.6.0 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.6.0). Both modules use the same signing certificate as the 0.5.0 release.
 
 Check each module against its accompanying `.sha256` file. From the folder containing a module and its checksum file, run `sha256sum -c ignition-mcp.modl.sha256` on Linux or `shasum -a 256 -c ignition-mcp.modl.sha256` on macOS. Repeat for `ignition-designer-assistant.modl.sha256`. In PowerShell, run `Get-FileHash -Algorithm SHA256 .\ignition-mcp.modl`, then repeat for the Designer module. Compare each hash with the first value in its checksum file.
 
