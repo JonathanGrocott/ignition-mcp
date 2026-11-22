@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP client to Ignition, give it scoped read access, and deliberately enable supported changes.
 
-For chat inside Ignition Designer 8.3.9, use the [Designer Assistant guide](DESIGNER_ASSISTANT.md). It covers installing both modules, granting access by Designer username, and configuring a model on the workstation.
+For chat inside Ignition Designer 8.3.9 or later 8.3.x, use the [Designer Assistant guide](DESIGNER_ASSISTANT.md). It covers installing both modules, granting access by Designer username, and configuring a model on the workstation.
 
 The Designer resource write workflow uses **Ignition MCP 0.5.0**. Install the signed 0.5.0 module to use ZIP imports, direct writes and Full access profiles. Screenshots show the 0.4.0 interface, captured on Ignition **8.3.9** using a synthetic development project on port **6890**. See [capture notes](images/gateway/README.md) for the build used. Your Gateway name, port, resources and saved permissions will differ. Some images intentionally show **unsaved drafts**. New installations and older configurations missing `writesEnabled` start with committed writes disabled.
 

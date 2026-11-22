@@ -22,6 +22,9 @@ class DesignerToolEndpointTest {
         var registry = new ToolRegistry();
         var endpoint = new DesignerToolEndpoint(null, mapper, () -> config, registry,
             new McpDispatcher(mapper, registry, new McpPermissionEvaluator()), new McpAuditLogger());
+        // Designer Assistant compares this with its own version; both modules are built from one moduleVersion.
+        assertEquals(com.jg.ignition.mcp.common.McpConstants.MODULE_VERSION, endpoint.moduleVersion());
+        assertTrue(endpoint.moduleVersion().matches("\\d+\\.\\d+\\.\\d+"), endpoint.moduleVersion());
         var session = mock(ClientReqSession.class);
         var context = mock(RpcContext.class);
         when(context.session()).thenReturn(session);

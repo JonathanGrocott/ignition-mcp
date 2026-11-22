@@ -8,12 +8,15 @@ pluginManagement {
             url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-releases/")
         }
         maven {
-            url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-beta")
-        }
-        maven {
             url = uri("https://nexus.inductiveautomation.com/repository/public")
         }
     }
+}
+
+plugins {
+    // The build always compiles and tests with a JDK 17 toolchain, whatever JDK runs Gradle (PATH or
+    // JAVA_HOME can be newer). When no JDK 17 is detected, Gradle downloads one into ~/.gradle/jdks.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
 dependencyResolutionManagement {
@@ -21,9 +24,6 @@ dependencyResolutionManagement {
         maven {
             name = "inductiveautomation-releases"
             url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-releases/")
-        }
-        maven {
-            url = uri("https://nexus.inductiveautomation.com/repository/inductiveautomation-beta")
         }
         maven {
             url = uri("https://nexus.inductiveautomation.com/repository/public")

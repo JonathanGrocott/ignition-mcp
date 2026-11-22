@@ -16,6 +16,7 @@ import com.inductiveautomation.ignition.common.tags.model.SecurityContext;
 import com.inductiveautomation.ignition.common.tags.model.TagPath;
 import com.inductiveautomation.ignition.common.tags.paths.parser.TagPathParser;
 import com.inductiveautomation.ignition.common.sqltags.model.types.DataType;
+import com.inductiveautomation.ignition.client.rpc.PlatformRpcInstances;
 import com.inductiveautomation.ignition.designer.IgnitionDesigner;
 import com.inductiveautomation.ignition.designer.model.DesignerContext;
 
@@ -43,6 +44,7 @@ final class NativeAgentProject implements AgentProject {
         "tag-change", "scheduled", "event-scripts");
 
     private final DesignerContext context;
+    private volatile String ignitionVersion;
 
     NativeAgentProject(DesignerContext context) {
         this.context = context;
@@ -51,6 +53,25 @@ final class NativeAgentProject implements AgentProject {
     @Override public String name() { return context.getProjectName(); }
     @Override public String defaultProvider() { return context.getDefaultTagProviderName(); }
     @Override public ObjectNode designerContext() { return DesignerSelection.capture(context); }
+
+    @Override public String ignitionVersion() {
+        String cached = ignitionVersion;
+        if (cached == null) {
+            cached = gatewayVersion();
+            ignitionVersion = cached;
+        }
+        return cached;
+    }
+
+    private static String gatewayVersion() {
+        try {
+            var version = PlatformRpcInstances.GATEWAY_INFO_RPC.getGatewayVersion();
+            return version == null ? "" : version.getMajor() + "." + version.getMinor() + "." + version.getRevision();
+        } catch (RuntimeException | LinkageError e) {
+            // The version only informs the model; never block a chat turn on it.
+            return "";
+        }
+    }
 
     @Override public void checkProjectChanges(Set<String> paths) throws IOException, InterruptedException {
         if (paths.isEmpty()) {
@@ -79,7 +100,7 @@ final class NativeAgentProject implements AgentProject {
     }
 
     private ObjectNode overview() throws IOException, InterruptedException {
-        var out = JSON.createObjectNode().put("project", name()).put("ignitionVersion", "8.3.9")
+        var out = JSON.createObjectNode().put("project", name()).put("ignitionVersion", ignitionVersion().isBlank() ? "unknown" : ignitionVersion())
             .put("defaultTagProvider", defaultProvider());
         var resources = onEdt(() -> List.copyOf(context.getProject().getResources()));
         var counts = out.putObject("projectResources");

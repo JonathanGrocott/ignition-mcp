@@ -1,13 +1,13 @@
 # Ignition MCP
 
-Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Designer Assistant adds a chat dock to Ignition Designer 8.3.9 and uses the Gateway module for authorized project tools.
+Ignition MCP connects AI clients to an Ignition 8.3 Gateway. The optional Designer Assistant adds a chat dock to Ignition Designer 8.3.9 or later 8.3.x releases and uses the Gateway module for authorized project tools.
 
 | Module | Install it for |
 |---|---|
 | **Ignition MCP** (`ignition-mcp.modl`) | Connecting an external MCP client to the Gateway using a scoped Ignition API key. [Gateway setup](docs/USER_GUIDE.md) |
 | **Designer Assistant** (`ignition-designer-assistant.modl`) | Asking about the open project and reviewing or applying changes from a dock in Designer. Uses your Designer login for Gateway tools and a model provider configured on your workstation. Install both modules for this setup. [Designer setup](docs/DESIGNER_ASSISTANT.md) |
 
-Download signed modules and SHA-256 checksums from [GitHub Releases](https://github.com/JonathanGrocott/ignition-mcp/releases). The [0.5.1 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.5.1) includes Ignition MCP **0.5.1** and Designer Assistant **0.4.7**. See the [Designer install guide](docs/DESIGNER_ASSISTANT.md#download-and-install) for the compatible pair and setup.
+Download signed modules and SHA-256 checksums from [GitHub Releases](https://github.com/JonathanGrocott/ignition-mcp/releases). The [0.6.0 prerelease](https://github.com/JonathanGrocott/ignition-mcp/releases/tag/v0.6.0) includes Ignition MCP **0.6.0** and the optional Designer Assistant **0.6.0**. See the [Designer install guide](docs/DESIGNER_ASSISTANT.md#download-and-install) for the compatible pair and setup.
 
 ![Ignition MCP Overview in the Gateway](docs/images/gateway/overview.jpg)
 
@@ -77,4 +77,4 @@ Branch CI produces development-signed artifacts for both modules. See the [relea
 
 ## Supported and unverified boundaries
 
-The code compiles against SDK 8.3.3; selected native integrations and the UI were exercised on Gateway 8.3.9. All 42 tools passed local fixture acceptance against the final signed 0.4.0 artifact, including native binary pipeline configuration readback. These results do not qualify every Ignition patch, custom pipeline body codec, production workload or browser. Reference search is literal rather than a complete dependency resolver, and source readback verifies saved content rather than Python execution or notification delivery. See the validation summary and [changelog](CHANGELOG.md).
+Both modules require Ignition 8.3.9 or later 8.3.x. They compile against the 8.3.9 SDK, and CI also compiles and tests them against 8.3.10 and the newest published 8.3.x SDK. Selected native integrations and the UI were exercised on Gateway 8.3.9. All 42 tools passed local fixture acceptance against the final signed 0.4.0 artifact, including native binary pipeline configuration readback. These results do not qualify every Ignition patch, custom pipeline body codec, production workload or browser. Reference search is literal rather than a complete dependency resolver, and source readback verifies saved content rather than Python execution or notification delivery. See the validation summary and [changelog](CHANGELOG.md).

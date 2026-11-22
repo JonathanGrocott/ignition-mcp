@@ -48,17 +48,21 @@ class AssistantAgentTest {
                 return selection;
             }
 
+            @Override public String ignitionVersion() { return "8.3.10"; }
+
             @Override public JsonNode inspect(String action, ObjectNode args) {
                 readArguments.add(args.deepCopy());
                 return JSON.createObjectNode().put("purpose", "Displays line speed");
             }
         };
         var snapshots = new CopyOnWriteArrayList<JsonNode>();
+        var prompts = new CopyOnWriteArrayList<String>();
         var model = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         model.createContext("/", exchange -> {
             try (exchange) {
                 var messages = JSON.readTree(exchange.getRequestBody()).path("messages");
                 String instructions = messages.get(0).path("content").asText();
+                prompts.add(instructions);
                 String marker = "\nDesigner context for the current user message (JSON data): ";
                 var snapshot = JSON.readTree(instructions.substring(instructions.indexOf(marker) + marker.length()));
                 snapshots.add(snapshot);
@@ -96,6 +100,10 @@ class AssistantAgentTest {
             assertEquals(viewPath, readArguments.get(0).path("path").asText());
             assertEquals("views", readArguments.get(0).path("resourceType").asText());
             assertEquals(2, snapshots.size());
+            for (String prompt : prompts) {
+                assertTrue(prompt.contains("\nIgnition Gateway version: 8.3.10\n"), prompt);
+                assertFalse(prompt.contains("8.3.9"), "The prompt must not assume a fixed 8.3 patch.");
+            }
             for (var snapshot : snapshots) {
                 assertEquals(viewPath, snapshot.at("/activeResource/path").asText());
                 assertEquals("Speed", snapshot.at("/perspectiveSelection/components/0/name").asText());

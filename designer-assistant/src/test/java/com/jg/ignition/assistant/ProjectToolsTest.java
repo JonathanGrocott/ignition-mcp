@@ -20,6 +20,8 @@ class ProjectToolsTest {
     void agentUsesGatewayCatalogAndAppliesTheReviewedScriptOnlyAfterApproval() throws Exception {
         var calls = new ArrayList<ObjectNode>();
         DesignerMcpRpc rpc = new DesignerMcpRpc() {
+            public String moduleVersion() { return ProjectTools.VERSION; }
+
             public String tools() {
                 return """
                     [{"name":"ignition.scripts.project.write","description":"Write script","mutating":true,
@@ -79,6 +81,36 @@ class ProjectToolsTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void bothModulesComeFromTheSameRelease() throws Exception {
+        assertNotEquals("unknown", ProjectTools.VERSION);
+        assertTrue(ProjectTools.VERSION.matches("\\d+\\.\\d+\\.\\d+"), ProjectTools.VERSION);
+
+        var matching = new ProjectTools(rpc(() -> ProjectTools.VERSION));
+        matching.checkModulePair();
+        assertTrue(matching.catalog().isEmpty());
+
+        var older = new ProjectTools(rpc(() -> "0.5.1"));
+        var mismatch = assertThrows(java.io.IOException.class, older::catalog);
+        assertTrue(mismatch.getMessage().contains("this Gateway has Ignition MCP 0.5.1"), mismatch.getMessage());
+
+        // A Gateway module from before 0.6.0 has no moduleVersion method, so the RPC call fails.
+        var missing = new ProjectTools(rpc(() -> { throw new IllegalStateException("No such RPC method"); }));
+        var absent = assertThrows(java.io.IOException.class, missing::checkModulePair);
+        assertTrue(absent.getMessage().contains("missing, not running, or older than " + ProjectTools.VERSION),
+            absent.getMessage());
+    }
+
+    private interface VersionSource { String get() throws Exception; }
+
+    private static DesignerMcpRpc rpc(VersionSource version) {
+        return new DesignerMcpRpc() {
+            public String moduleVersion() throws Exception { return version.get(); }
+            public String tools() { return "[]"; }
+            public String call(String tool, String arguments) { throw new AssertionError(tool); }
+        };
     }
 
     @Test

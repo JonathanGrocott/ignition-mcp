@@ -1,10 +1,10 @@
 # Publishing signed modules
 
-Keep the Gateway module and Designer Assistant in this repository. They have separate module IDs and version numbers. Publish the compatible pair on one GitHub release so an administrator can download both from the same tested commit. The first pair prepared on the Designer Assistant branch is **Ignition MCP 0.5.1** and **Designer Assistant 0.4.7** for **Ignition 8.3.9**.
+Keep the Gateway module and Designer Assistant in this repository. They have separate module IDs and, from 0.6.0, share one version number set by `moduleVersion` in `build.gradle.kts`. Ignition MCP works on its own; Designer Assistant is optional and needs Ignition MCP of the same version on the same Gateway. It shows a warning in the dock when the Gateway module is missing or from a different release. Publish both modules on one GitHub release so an administrator can download them from the same tested commit. The first pair prepared on the Designer Assistant branch is **Ignition MCP 0.5.1** and **Designer Assistant 0.4.7** for **Ignition 8.3.9**. Later pairs keep 8.3.9 as the minimum and support every later 8.3.x patch. CI compiles and tests each change against 8.3.9, 8.3.10 and the newest published 8.3.x SDK.
 
 ## Branch builds and GitHub Releases
 
-The [Build workflow](../.github/workflows/build.yml) builds, tests, and signs both modules on branch pushes. The two archives under **Artifacts** contain the signed `.modl` files and checksums. They use a development signing certificate and the workflow requests 30 days of retention. Use the artifacts from the same run for evaluation on a test Gateway. [GitHub artifact retention](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/remove-workflow-artifacts)
+The [Build workflow](../.github/workflows/build.yml) builds and tests both modules against each supported 8.3.x SDK on pushes and pull requests to `main`, and weekly. The `dev-signed-modules-not-for-release` archive under **Artifacts** contains both `.modl` files and checksums. They use a development signing certificate generated for each run and the workflow requests 30 days of retention. Use the artifacts from the same run for evaluation on a test Gateway. [GitHub artifact retention](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/remove-workflow-artifacts)
 
 The [Build and Release workflow](../.github/workflows/release.yml) runs on a version tag. It checks the tag against the Gateway version, builds and tests both modules, signs them with the release certificate, verifies the signed payloads against the build outputs, and stages all four assets in a draft. The signing job uses the `release-signing` GitHub environment, which is restricted to release tags. Configure these environment secrets from the existing release identity.
 
@@ -19,7 +19,7 @@ The signing job requires all four values and verifies the expected certificate f
 
 Choose a commit on which the branch CI and Windows discovery job have passed. Update the [changelog](../CHANGELOG.md) and [Designer Assistant guide](DESIGNER_ASSISTANT.md) with the exact paired versions and download link when publishing.
 
-Build the candidate with JDK 17 from a clean checkout.
+Build the candidate from a clean checkout. Gradle compiles and tests with a JDK 17 toolchain whatever JDK runs Gradle, and downloads JDK 17 into `~/.gradle/jdks` when none is detected.
 
 ```sh
 ./gradlew clean test :zipModule verifyModulePackage :designer-assistant:zipModule

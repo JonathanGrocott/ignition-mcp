@@ -2,69 +2,101 @@ name: Build
 
 on:
   push:
-    branches: [ main, master, develop, dev/designer-assistant ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main ]
+  schedule:
+    # Weekly, so a newly published 8.3.x SDK is tested before anyone installs on it.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  # Both modules declare Ignition 8.3.9 as their minimum and compile against it by default.
+  # Compiling and testing against each newer 8.3.x SDK catches API changes in later patches.
+  compatibility:
+    name: Ignition SDK ${{ matrix.sdk }}
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [ '8.3.9', '8.3.10', 'latest' ]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
+    - uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/gradle-build-action@v3
-      with:
-        gradle-version: wrapper
+    - uses: gradle/actions/setup-gradle@v4
 
-    - name: Make gradlew executable
-      run: chmod +x ./gradlew
-
-    - name: Build module
-      run: ./gradlew clean test :zipModule checksumModl :designer-assistant:zipModule
-
-    - name: Sign module
-      run: ./scripts/sign-module.sh
-
-    - name: Prepare checksum file
+    - name: Resolve SDK version
+      id: sdk
       run: |
-        unzip -l build/ignition-mcp.modl | grep -q "certificates.p7b"
-        unzip -l build/ignition-mcp.modl | grep -q "signatures.properties"
-        sha256sum build/ignition-mcp.modl > build/ignition-mcp.modl.sha256
+        sdk='${{ matrix.sdk }}'
+        if [ "$sdk" = latest ]; then
+          sdk=$(curl -fsSL https://nexus.inductiveautomation.com/repository/inductiveautomation-releases/com/inductiveautomation/ignitionsdk/gateway-api/maven-metadata.xml \
+            | grep -oE '<version>8\.3\.[0-9]+</version>' | grep -oE '8\.3\.[0-9]+' | sort -t. -k3,3n | tail -n 1)
+        fi
+        [[ "$sdk" =~ ^8\.3\.[0-9]+$ ]]
+        echo "Testing against Ignition SDK $sdk"
+        echo "version=$sdk" >> "$GITHUB_OUTPUT"
 
-    - name: Upload module artifact
+    - name: Build and test both modules
+      run: ./gradlew --no-daemon -PignitionSdkVersion=${{ steps.sdk.outputs.version }} clean test :zipModule checksumModl :designer-assistant:zipModule
+
+    - name: Check declared minimum Ignition version
+      run: |
+        for module in build/ignition-mcp.unsigned.modl designer-assistant/build/ignition-designer-assistant.unsigned.modl; do
+          unzip -p "$module" module.xml | grep -q '<requiredIgnitionVersion>8.3.9</requiredIgnitionVersion>' \
+            || { echo "$module does not declare Ignition 8.3.9 as its minimum." >&2; exit 1; }
+        done
+
+  build:
+    name: Development modules
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - uses: gradle/actions/setup-gradle@v4
+
+    - name: Build and test both modules
+      run: |
+        ./gradlew --no-daemon clean test :zipModule checksumModl :designer-assistant:zipModule
+        node --test gateway/src/test/js/*.test.cjs
+
+    # CI signs with a throwaway development certificate generated for each run, so a test Gateway
+    # can install these builds. Release modules are signed only by the release workflow.
+    - name: Sign development modules
+      run: |
+        ./scripts/sign-module.sh
+        MODULE_IN=designer-assistant/build/ignition-designer-assistant.unsigned.modl \
+          MODULE_OUT=designer-assistant/build/ignition-designer-assistant.modl ./scripts/sign-module.sh
+        for module in build/ignition-mcp.modl designer-assistant/build/ignition-designer-assistant.modl; do
+          unzip -l "$module" | grep -q certificates.p7b
+          unzip -l "$module" | grep -q signatures.properties
+          sha256sum "$module" > "$module.sha256"
+        done
+
+    - name: Upload development modules
       uses: actions/upload-artifact@v4
       with:
-        name: ignition-mcp-module
+        name: dev-signed-modules-not-for-release
         path: |
           build/ignition-mcp.modl
           build/ignition-mcp.modl.sha256
           build/checksum/checksum.json
-        retention-days: 30
-
-    - name: Sign Designer Assistant
-      env:
-        MODULE_IN: designer-assistant/build/ignition-designer-assistant.unsigned.modl
-        MODULE_OUT: designer-assistant/build/ignition-designer-assistant.modl
-      run: |
-        ./scripts/sign-module.sh
-        sha256sum "${MODULE_OUT}" > "${MODULE_OUT}.sha256"
-
-    - name: Upload Designer Assistant artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ignition-designer-assistant-module
-        path: |
           designer-assistant/build/ignition-designer-assistant.modl
           designer-assistant/build/ignition-designer-assistant.modl.sha256
+        if-no-files-found: error
         retention-days: 30
 
   windows-cli:
